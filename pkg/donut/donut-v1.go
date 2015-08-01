@@ -627,6 +627,25 @@ func (donut API) getDonutBucketMetadata() (*AllBuckets, error) {
 	return nil, iodine.New(err, nil)
 }
 
+func (donut API) getBucketInfoWriters(bucketName string) ([]io.WriteCloser, error) {
+	var writers []io.WriteCloser
+	for _, node := range donut.nodes {
+		disks, err := node.ListDisks()
+		if err != nil {
+			return nil, iodine.New(err, nil)
+		}
+		writers = make([]io.WriteCloser, len(disks))
+		for order, disk := range disks {
+			bucketMetaDataWriter, err := disk.CreateFile(filepath.Join(donut.config.DonutName, bucketName+".bucketInfo.meta"))
+			if err != nil {
+				return nil, iodine.New(err, nil)
+			}
+			writers[order] = bucketMetaDataWriter
+		}
+	}
+	return writers, nil
+}
+
 // makeDonutBucket -
 func (donut API) makeDonutBucket(bucketName, acl string) error {
 	if err := donut.listDonutBuckets(); err != nil {
@@ -655,6 +674,18 @@ func (donut API) makeDonutBucket(bucketName, acl string) error {
 		}
 		nodeNumber = nodeNumber + 1
 	}
+	err = donut.createBucketInfo(bucketName, bucketMetadata)
+	if err != nil {
+		return iodine.New(err, nil)
+	}
+	err = donut.createObjectsList(bucketName)
+	if err != nil {
+		return iodine.New(err, nil)
+	}
+	err = donut.appendBucketList(bucketName)
+	if err != nil {
+		return iodine.New(err, nil)
+	}
 	metadata, err := donut.getDonutBucketMetadata()
 	if err != nil {
 		if os.IsNotExist(iodine.ToError(err)) {
@@ -673,6 +704,60 @@ func (donut API) makeDonutBucket(bucketName, acl string) error {
 	err = donut.setDonutBucketMetadata(metadata)
 	if err != nil {
 		return iodine.New(err, nil)
+	}
+	return nil
+}
+
+func (donut API) appendBucketList(bucketName string) error {
+	for _, node := range donut.nodes {
+		disks, err := node.ListDisks()
+		if err != nil {
+			return iodine.New(err, nil)
+		}
+		for _, disk := range disks {
+			bucketList := filepath.Join(donut.config.DonutName, "donut.bucketsList.meta")
+			writer, err := disk.AppendFile(bucketList)
+			if err != nil {
+				return iodine.New(err, nil)
+			}
+			writer.Write([]byte(bucketName + "\n"))
+			writer.Close()
+		}
+	}
+	return nil
+}
+
+func (donut API) createObjectsList(bucketName string) error {
+	for _, node := range donut.nodes {
+		disks, err := node.ListDisks()
+		if err != nil {
+			return iodine.New(err, nil)
+		}
+		for _, disk := range disks {
+			writer, err := disk.CreateFile(filepath.Join(donut.config.DonutName, bucketName+".objectsList.meta"))
+			if err != nil {
+				return iodine.New(err, nil)
+			}
+			writer.Close()
+		}
+	}
+	return nil
+}
+
+func (donut API) createBucketInfo(bucketName string, bucketMetadata BucketMetadata) error {
+	writers, err := donut.getBucketInfoWriters(bucketName)
+	if err != nil {
+		return iodine.New(err, nil)
+	}
+	for _, writer := range writers {
+		jenc := json.NewEncoder(writer)
+		if err := jenc.Encode(bucketMetadata); err != nil {
+			CleanupWritersOnError(writers)
+			return iodine.New(err, nil)
+		}
+	}
+	for _, writer := range writers {
+		writer.Close()
 	}
 	return nil
 }

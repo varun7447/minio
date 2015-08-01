@@ -27,11 +27,8 @@ import (
 
 // healBuckets heal bucket slices
 func (donut API) healBuckets() error {
+	fmt.Println("healBuckets")
 	if err := donut.listDonutBuckets(); err != nil {
-		return iodine.New(err, nil)
-	}
-	bucketMetadata, err := donut.getDonutBucketMetadata()
-	if err != nil {
 		return iodine.New(err, nil)
 	}
 	disks := make(map[int]disk.Disk)
@@ -43,6 +40,21 @@ func (donut API) healBuckets() error {
 		for k, v := range nDisks {
 			disks[k] = v
 		}
+	}
+	for _, disk := range disks {
+		if disk.IsUsable() {
+			disk.MakeDir(donut.config.DonutName)
+			fmt.Println(filepath.Join(donut.config.DonutName, "donut.bucketsList.meta"))
+			bucketList, err := disk.CreateFile(filepath.Join(donut.config.DonutName, "donut.bucketsList.meta"))
+			if err != nil {
+				return iodine.New(err, nil)
+			}
+			defer bucketList.Close()
+		}
+	}
+	bucketMetadata, err := donut.getDonutBucketMetadata()
+	if err != nil {
+		return iodine.New(err, nil)
 	}
 	for order, disk := range disks {
 		if disk.IsUsable() {
