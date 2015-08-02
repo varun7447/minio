@@ -17,10 +17,12 @@
 package donut
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -44,6 +46,10 @@ const (
 	bucketMetadataConfig = "bucketMetadata.json"
 	objectMetadataConfig = "objectMetadata.json"
 
+	bucketInfoMetaExtn  = ".bucketInfo.meta"
+	objectsListMetaExtn = ".objectsList.meta"
+	bucketsListMeta     = "donut.bucketsList.meta"
+
 	// versions
 	objectMetadataVersion = "1.0.0"
 	bucketMetadataVersion = "1.0.0"
@@ -61,54 +67,96 @@ func (donut API) makeBucket(bucket string, acl BucketACL) error {
 
 // getBucketMetadata - get bucket metadata
 func (donut API) getBucketMetadata(bucketName string) (BucketMetadata, error) {
-	if err := donut.listDonutBuckets(); err != nil {
-		return BucketMetadata{}, iodine.New(err, nil)
-	}
-	if _, ok := donut.buckets[bucketName]; !ok {
-		return BucketMetadata{}, iodine.New(BucketNotFound{Bucket: bucketName}, nil)
-	}
-	metadata, err := donut.getDonutBucketMetadata()
-	if err != nil {
-		return BucketMetadata{}, iodine.New(err, nil)
-	}
-	return metadata.Buckets[bucketName], nil
+	return donut.getBucketInfo(bucketName)
+	// if err := donut.listDonutBuckets(); err != nil {
+	// 	return BucketMetadata{}, iodine.New(err, nil)
+	// }
+	// if _, ok := donut.buckets[bucketName]; !ok {
+	// 	return BucketMetadata{}, iodine.New(BucketNotFound{Bucket: bucketName}, nil)
+	// }
+	// metadata, err := donut.getDonutBucketMetadata()
+	// if err != nil {
+	// 	return BucketMetadata{}, iodine.New(err, nil)
+	// }
+	// return metadata.Buckets[bucketName], nil
 }
 
 // setBucketMetadata - set bucket metadata
 func (donut API) setBucketMetadata(bucketName string, bucketMetadata map[string]string) error {
-	if err := donut.listDonutBuckets(); err != nil {
-		return iodine.New(err, nil)
-	}
-	metadata, err := donut.getDonutBucketMetadata()
+	bucketInfo, err := donut.getBucketInfo(bucketName)
 	if err != nil {
 		return iodine.New(err, nil)
 	}
-	oldBucketMetadata := metadata.Buckets[bucketName]
 	acl, ok := bucketMetadata["acl"]
 	if !ok {
 		return iodine.New(InvalidArgument{}, nil)
 	}
-	oldBucketMetadata.ACL = BucketACL(acl)
-	metadata.Buckets[bucketName] = oldBucketMetadata
-	return donut.setDonutBucketMetadata(metadata)
+	bucketInfo.ACL = BucketACL(acl)
+	if err := donut.setBucketInfo(bucketInfo); err != nil {
+		return iodine.New((err), nil)
+	}
+	return nil
+	// if err := donut.listDonutBuckets(); err != nil {
+	// 	return iodine.New(err, nil)
+	// }
+	// metadata, err := donut.getDonutBucketMetadata()
+	// if err != nil {
+	// 	return iodine.New(err, nil)
+	// }
+	// oldBucketMetadata := metadata.Buckets[bucketName]
+	// acl, ok = bucketMetadata["acl"]
+	// if !ok {
+	// 	return iodine.New(InvalidArgument{}, nil)
+	// }
+	// oldBucketMetadata.ACL = BucketACL(acl)
+	// metadata.Buckets[bucketName] = oldBucketMetadata
+	// return donut.setDonutBucketMetadata(metadata)
 }
 
 // listBuckets - return list of buckets
 func (donut API) listBuckets() (map[string]BucketMetadata, error) {
-	if err := donut.listDonutBuckets(); err != nil {
-		return nil, iodine.New(err, nil)
+	var reader io.Reader
+	var err error
+	for _, node := range donut.nodes {
+		buckets := make(map[string]BucketMetadata)
+		disks, err := node.ListDisks()
+		if err != nil {
+			return nil, iodine.New(err, nil)
+		}
+		for _, disk := range disks {
+			reader, err = disk.OpenFile(filepath.Join(donut.config.DonutName, bucketsListMeta))
+			if err != nil {
+				continue
+			}
+			break
+		}
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			bucketName := scanner.Text()
+			bucketInfo, err := donut.getBucketInfo(bucketName)
+			if err != nil {
+				continue
+			}
+			buckets[bucketName] = bucketInfo
+		}
+		fmt.Println(buckets)
+		return buckets, nil
 	}
-	metadata, err := donut.getDonutBucketMetadata()
-	if err != nil {
-		// intentionally left out the error when Donut is empty
-		// but we need to revisit this area in future - since we need
-		// to figure out between acceptable and unacceptable errors
-		return make(map[string]BucketMetadata), nil
-	}
-	if metadata == nil {
-		return make(map[string]BucketMetadata), nil
-	}
-	return metadata.Buckets, nil
+	return nil, iodine.New(err, nil)
+	// if err := donut.listDonutBuckets(); err != nil {
+	// 	return nil, iodine.New(err, nil)
+	// }
+	// metadata, err := donut.getDonutBucketMetadata()
+	// if err != nil {
+	// 	// intentionally left out the error when Donut is empty
+	// 	// but we need to revisit this area in future - since we need
+	// 	// to figure out between acceptable and unacceptable errors
+	// 	return make(map[string]BucketMetadata), nil
+	// }
+	// if metadata == nil {
+	// 	return make(map[string]BucketMetadata), nil
+	// }
+	// return metadata.Buckets, nil
 }
 
 // listObjects - return list of objects
@@ -678,7 +726,7 @@ func (donut API) makeDonutBucket(bucketName, acl string) error {
 	if err != nil {
 		return iodine.New(err, nil)
 	}
-	err = donut.createObjectsList(bucketName)
+	err = donut.createObjectList(bucketName)
 	if err != nil {
 		return iodine.New(err, nil)
 	}
@@ -715,7 +763,7 @@ func (donut API) appendBucketList(bucketName string) error {
 			return iodine.New(err, nil)
 		}
 		for _, disk := range disks {
-			bucketList := filepath.Join(donut.config.DonutName, "donut.bucketsList.meta")
+			bucketList := filepath.Join(donut.config.DonutName, bucketsListMeta)
 			writer, err := disk.AppendFile(bucketList)
 			if err != nil {
 				return iodine.New(err, nil)
@@ -727,14 +775,14 @@ func (donut API) appendBucketList(bucketName string) error {
 	return nil
 }
 
-func (donut API) createObjectsList(bucketName string) error {
+func (donut API) createObjectList(bucketName string) error {
 	for _, node := range donut.nodes {
 		disks, err := node.ListDisks()
 		if err != nil {
 			return iodine.New(err, nil)
 		}
 		for _, disk := range disks {
-			writer, err := disk.CreateFile(filepath.Join(donut.config.DonutName, bucketName+".objectsList.meta"))
+			writer, err := disk.CreateFile(filepath.Join(donut.config.DonutName, bucketName+objectsListMetaExtn))
 			if err != nil {
 				return iodine.New(err, nil)
 			}
@@ -758,6 +806,49 @@ func (donut API) createBucketInfo(bucketName string, bucketMetadata BucketMetada
 	}
 	for _, writer := range writers {
 		writer.Close()
+	}
+	return nil
+}
+
+func (donut API) getBucketInfo(bucketName string) (BucketMetadata, error) {
+	for _, node := range donut.nodes {
+		disks, err := node.ListDisks()
+		if err != nil {
+			return BucketMetadata{}, iodine.New(err, nil)
+		}
+		for _, disk := range disks {
+			bucketInfo := BucketMetadata{}
+			reader, err := disk.OpenFile(filepath.Join(donut.config.DonutName, bucketName+bucketInfoMetaExtn))
+			if err != nil {
+				continue
+			}
+			defer reader.Close()
+			jdec := json.NewDecoder(reader)
+			if err := jdec.Decode(&bucketInfo); err == nil {
+				return bucketInfo, nil
+			}
+		}
+	}
+	return BucketMetadata{}, iodine.New(errors.New("getBucketInfor Error"), nil)
+}
+
+func (donut API) setBucketInfo(bucketInfo BucketMetadata) error {
+	for _, node := range donut.nodes {
+		disks, err := node.ListDisks()
+		if err != nil {
+			return iodine.New(err, nil)
+		}
+		for _, disk := range disks {
+			writer, err := disk.Open(filepath.Join(donut.config.DonutName, bucketInfo.Name+bucketInfoMetaExtn), os.O_TRUNC|os.O_WRONLY)
+			if err != nil {
+				continue
+			}
+			defer writer.Close()
+			jdec := json.NewEncoder(writer)
+			if err := jdec.Encode(bucketInfo); err != nil {
+				continue
+			}
+		}
 	}
 	return nil
 }

@@ -185,6 +185,20 @@ func (disk Disk) OpenFile(filename string) (*os.File, error) {
 	return dataFile, nil
 }
 
+func (disk Disk) Open(filename string, flags int) (*os.File, error) {
+	disk.lock.Lock()
+	defer disk.lock.Unlock()
+
+	if filename == "" {
+		return nil, iodine.New(InvalidArgument{}, nil)
+	}
+	dataFile, err := os.OpenFile(filepath.Join(disk.path, filename), flags, 0)
+	if err != nil {
+		return nil, iodine.New(err, nil)
+	}
+	return dataFile, nil
+}
+
 func (disk Disk) AppendFile(filename string) (*os.File, error) {
 	disk.lock.Lock()
 	defer disk.lock.Unlock()
@@ -194,7 +208,6 @@ func (disk Disk) AppendFile(filename string) (*os.File, error) {
 	}
 
 	dataFile, err := os.OpenFile(filepath.Join(disk.path, filename), os.O_WRONLY|os.O_APPEND, 0)
-	fmt.Println(filepath.Join(disk.path, filename))
 	if err != nil {
 		return nil, iodine.New(err, nil)
 	}

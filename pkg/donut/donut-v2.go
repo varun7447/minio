@@ -21,7 +21,6 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -119,7 +118,6 @@ func New() (Interface, error) {
 			newBucket.partMetadata = make(map[string]map[int]PartMetadata)
 			a.storedBuckets.Set(k, newBucket)
 		}
-		fmt.Println("healing")
 		a.Heal()
 	}
 	return a, nil
