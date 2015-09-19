@@ -56,7 +56,7 @@ func getRPCServer(rpcHandler http.Handler) (*http.Server, *probe.Error) {
 
 // StartController starts a minio controller
 func StartController() *probe.Error {
-	rpcServer, err := getRPCServer(getRPCHandler())
+	rpcServer, err := getRPCServer(getRPCCtrlHandler())
 	if err != nil {
 		return err.Trace()
 	}
