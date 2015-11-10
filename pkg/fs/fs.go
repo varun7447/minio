@@ -17,6 +17,7 @@
 package fs
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -26,11 +27,13 @@ import (
 
 // Filesystem - local variables
 type Filesystem struct {
-	path        string
-	minFreeDisk int64
-	lock        *sync.Mutex
-	multiparts  *Multiparts
-	buckets     *Buckets
+	path             string
+	minFreeDisk      int64
+	lock             *sync.Mutex
+	multiparts       *Multiparts
+	buckets          *Buckets
+	listServiceReqCh chan<- listServiceReq
+	timeoutReqCh     chan<- ListObjectsReq
 }
 
 // Buckets holds acl information
@@ -95,9 +98,14 @@ func New() (Filesystem, *probe.Error) {
 
 // SetRootPath - set root path
 func (fs *Filesystem) SetRootPath(path string) {
+	var err *probe.Error
 	fs.lock.Lock()
 	defer fs.lock.Unlock()
 	fs.path = path
+	err = fs.startListService()
+	if err != nil {
+		fmt.Println("startListService() returned error", err)
+	}
 }
 
 // SetMinFreeDisk - set min free disk
