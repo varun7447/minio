@@ -31,11 +31,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minio/minio/pkg/atomic"
 	"github.com/minio/minio/pkg/crypto/sha512"
 	"github.com/minio/minio/pkg/disk"
 	"github.com/minio/minio/pkg/mimedb"
 	"github.com/minio/minio/pkg/probe"
+	"github.com/minio/minio/pkg/safe"
 )
 
 // isValidUploadID - is upload id.
@@ -365,7 +365,7 @@ func (fs Filesystem) PutObjectPart(bucket, object, uploadID string, partID int, 
 	objectPath := filepath.Join(bucketPath, object)
 	partPathPrefix := objectPath + uploadID
 	partPath := partPathPrefix + md5Hex + fmt.Sprintf("$%d-$multiparts", partID)
-	partFile, e := atomic.FileCreateWithPrefix(partPath, "$multiparts")
+	partFile, e := safe.CreateFileWithPrefix(partPath, "$multiparts")
 	if e != nil {
 		return "", probe.NewError(e)
 	}
@@ -378,7 +378,7 @@ func (fs Filesystem) PutObjectPart(bucket, object, uploadID string, partID int, 
 	multiWriter := io.MultiWriter(md5Writer, partFile)
 
 	if _, e = io.CopyN(multiWriter, data, size); e != nil {
-		partFile.CloseAndPurge()
+		partFile.PurgeClose()
 		return "", probe.NewError(e)
 	}
 
@@ -460,7 +460,7 @@ func (fs Filesystem) CompleteMultipartUpload(bucket string, object string, uploa
 	}
 
 	objectPath := filepath.Join(bucketPath, object)
-	objectWriter, e := atomic.FileCreateWithPrefix(objectPath, "$tmpobject")
+	objectWriter, e := safe.CreateFileWithPrefix(objectPath, "$tmpobject")
 	if e != nil {
 		return ObjectInfo{}, probe.NewError(e)
 	}
@@ -471,14 +471,14 @@ func (fs Filesystem) CompleteMultipartUpload(bucket string, object string, uploa
 	fs.rwLock.RUnlock()
 
 	if !doPartsMatch(parts, savedParts) {
-		objectWriter.CloseAndPurge()
+		objectWriter.PurgeClose()
 		return ObjectInfo{}, probe.NewError(InvalidPart{})
 	}
 
 	// Parts successfully validated, save all the parts.
 	partPathPrefix := objectPath + uploadID
 	if err := saveParts(partPathPrefix, objectWriter, parts); err != nil {
-		objectWriter.CloseAndPurge()
+		objectWriter.PurgeClose()
 		return ObjectInfo{}, err.Trace(partPathPrefix)
 	}
 	var md5Strs []string
@@ -488,7 +488,7 @@ func (fs Filesystem) CompleteMultipartUpload(bucket string, object string, uploa
 	// Save the s3 md5.
 	s3MD5, err := makeS3MD5(md5Strs...)
 	if err != nil {
-		objectWriter.CloseAndPurge()
+		objectWriter.PurgeClose()
 		return ObjectInfo{}, err.Trace(md5Strs...)
 	}
 
@@ -500,7 +500,7 @@ func (fs Filesystem) CompleteMultipartUpload(bucket string, object string, uploa
 	delete(fs.multiparts.ActiveSession, uploadID)
 	if err := saveMultipartsSession(*fs.multiparts); err != nil {
 		fs.rwLock.Unlock()
-		objectWriter.CloseAndPurge()
+		objectWriter.PurgeClose()
 		return ObjectInfo{}, err.Trace(partPathPrefix)
 	}
 	if e = objectWriter.Close(); e != nil {
