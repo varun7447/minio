@@ -43,12 +43,12 @@ func readDirAll(readDirPath, entryPrefixMatch string) ([]fsDirent, error) {
 		}
 		for _, fi := range fis {
 			dirent := fsDirent{
-				name:         fi.Name(),
-				size:         fi.Size(),
-				modifiedTime: fi.ModTime(),
-				isDir:        fi.IsDir(),
+				name:    fi.Name(),
+				size:    fi.Size(),
+				modTime: fi.ModTime(),
+				mode:    fi.Mode(),
 			}
-			if dirent.isDir {
+			if dirent.mode.IsDir() {
 				dirent.name += string(os.PathSeparator)
 				dirent.size = 0
 			}
@@ -58,6 +58,6 @@ func readDirAll(readDirPath, entryPrefixMatch string) ([]fsDirent, error) {
 		}
 	}
 	// Sort dirents.
-	sort.Sort(byDirentNames(dirents))
+	sort.Sort(byDirentName(dirents))
 	return dirents, nil
 }

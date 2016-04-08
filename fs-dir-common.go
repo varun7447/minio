@@ -26,25 +26,25 @@ import (
 
 // fsDirent carries directory entries.
 type fsDirent struct {
-	name         string
-	modifiedTime time.Time // On Solaris and older unix distros this is empty.
-	size         int64     // On Solaris and older unix distros this is empty.
-	isDir        bool
+	name    string
+	modTime time.Time // On Solaris and older unix distros this is empty.
+	size    int64     // On Solaris and older unix distros this is empty.
+	mode    os.FileMode
 }
 
-// byDirentNames is a collection satisfying sort.Interface.
-type byDirentNames []fsDirent
+// byDirentName is a collection satisfying sort.Interface.
+type byDirentName []fsDirent
 
-func (d byDirentNames) Len() int      { return len(d) }
-func (d byDirentNames) Swap(i, j int) { d[i], d[j] = d[j], d[i] }
-func (d byDirentNames) Less(i, j int) bool {
+func (d byDirentName) Len() int      { return len(d) }
+func (d byDirentName) Swap(i, j int) { d[i], d[j] = d[j], d[i] }
+func (d byDirentName) Less(i, j int) bool {
 	n1 := d[i].name
-	if d[i].isDir {
+	if d[i].mode.IsDir() {
 		n1 = n1 + string(os.PathSeparator)
 	}
 
 	n2 := d[j].name
-	if d[j].isDir {
+	if d[j].mode.IsDir() {
 		n2 = n2 + string(os.PathSeparator)
 	}
 
@@ -85,7 +85,7 @@ func treeWalk(bucketDir, prefixDir, entryPrefixMatch, marker string, recursive b
 		fileInfo := FileInfo{}
 		// Convert to full object name.
 		fileInfo.Name = filepath.Join(prefixDir, dirent.name)
-		if dirent.modifiedTime.IsZero() && dirent.size == 0 {
+		if dirent.modTime.IsZero() && dirent.size == 0 {
 			// ModifiedTime and Size are zero, Stat() and figure out
 			// the actual values that need to be set.
 			fi, err := os.Stat(filepath.Join(bucketDir, prefixDir, dirent.name))
@@ -93,17 +93,17 @@ func treeWalk(bucketDir, prefixDir, entryPrefixMatch, marker string, recursive b
 				return FileInfo{}, err
 			}
 			// Fill size and modtime.
-			fileInfo.ModifiedTime = fi.ModTime()
+			fileInfo.ModTime = fi.ModTime()
 			fileInfo.Size = fi.Size()
-			fileInfo.IsDir = fi.IsDir()
+			fileInfo.Mode = fi.Mode()
 		} else {
-			// If ModifiedTime or Size are set then use them
+			// If ModTime or Size are set then use them
 			// without attempting another Stat operation.
-			fileInfo.ModifiedTime = dirent.modifiedTime
+			fileInfo.ModTime = dirent.modTime
 			fileInfo.Size = dirent.size
-			fileInfo.IsDir = dirent.isDir
+			fileInfo.Mode = dirent.mode
 		}
-		if fileInfo.IsDir {
+		if fileInfo.Mode.IsDir() {
 			// Add os.PathSeparator suffix again for directories as
 			// filepath.Join would have removed it.
 			fileInfo.Size = 0
@@ -135,13 +135,13 @@ func treeWalk(bucketDir, prefixDir, entryPrefixMatch, marker string, recursive b
 	dirents = dirents[searchDirents(dirents, markerDir):]
 	*count += len(dirents)
 	for i, dirent := range dirents {
-		if i == 0 && markerDir == dirent.name && !dirent.isDir {
+		if i == 0 && markerDir == dirent.name && !dirent.mode.IsDir() {
 			// If the first entry is not a directory
 			// we need to skip this entry.
 			*count--
 			continue
 		}
-		if dirent.isDir && recursive {
+		if dirent.mode.IsDir() && recursive {
 			// If the entry is a directory, we will need recurse into it.
 			markerArg := ""
 			if dirent.name == markerDir {

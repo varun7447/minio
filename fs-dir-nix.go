@@ -65,9 +65,30 @@ func parseDirents(buf []byte) []fsDirent {
 		if name == "." || name == ".." {
 			continue
 		}
+
+		var mode os.FileMode
+		switch dirent.Type {
+		case syscall.DT_BLK, syscall.DT_WHT:
+			mode = os.ModeDevice
+		case syscall.DT_CHR:
+			mode = os.ModeDevice | os.ModeCharDevice
+		case syscall.DT_DIR:
+			mode = os.ModeDir
+		case syscall.DT_FIFO:
+			mode = os.ModeNamedPipe
+		case syscall.DT_LNK:
+			mode = os.ModeSymlink
+		case syscall.DT_REG:
+			mode = 0
+		case syscall.DT_SOCK:
+			mode = os.ModeSocket
+		case syscall.DT_UNKNOWN:
+			mode = 0xffffffff
+		}
+
 		dirents = append(dirents, fsDirent{
-			name:  name,
-			isDir: (dirent.Type == syscall.DT_DIR),
+			name: name,
+			mode: mode,
 		})
 	}
 	return dirents
@@ -91,7 +112,7 @@ func readDirAll(readDirPath, entryPrefixMatch string) ([]fsDirent, error) {
 			break
 		}
 		for _, dirent := range parseDirents(buf[:nbuf]) {
-			if dirent.isDir {
+			if dirent.mode.IsDir() {
 				dirent.name += string(os.PathSeparator)
 				dirent.size = 0
 			}
@@ -100,6 +121,6 @@ func readDirAll(readDirPath, entryPrefixMatch string) ([]fsDirent, error) {
 			}
 		}
 	}
-	sort.Sort(byDirentNames(dirents))
+	sort.Sort(byDirentName(dirents))
 	return dirents, nil
 }
