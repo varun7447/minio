@@ -17,6 +17,7 @@
 package main
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -25,6 +26,8 @@ import (
 const (
 	globalLookupTimeout = time.Minute * 30 // 30minutes.
 )
+
+var errWalkAbort = errors.New("treeWalk abort")
 
 // treeWalkerPoolInfo - tree walker pool info carries temporary walker
 // channel stored until timeout is called.
@@ -62,17 +65,18 @@ func newTreeWalkerPool(timeout time.Duration) *treeWalkerPool {
 func (t treeWalkerPool) Release(params listParams) (treeWalkerCh chan treeWalker, treeWalkerDoneCh chan struct{}) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	treeWalk, ok := t.pool[params]
+	walks, ok := t.pool[params]
 	if ok {
-		if len(treeWalk) > 0 {
-			treeWalker := treeWalk[0]
-			if len(treeWalk[1:]) > 0 {
-				t.pool[params] = treeWalk[1:]
+		if len(walks) > 0 {
+			walk := walks[0]
+			walks = walks[1:]
+			if len(walks) > 0 {
+				t.pool[params] = walks
 			} else {
 				delete(t.pool, params)
 			}
-			treeWalker.doneCh <- struct{}{}
-			return treeWalker.treeWalkerCh, treeWalker.treeWalkerDoneCh
+			walk.doneCh <- struct{}{}
+			return walk.treeWalkerCh, walk.treeWalkerDoneCh
 		}
 	}
 	// Release return nil if params not found.
@@ -88,13 +92,13 @@ func (t treeWalkerPool) Set(params listParams, treeWalkerCh chan treeWalker, tre
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	var treeWalkerIdx = len(t.pool[params])
-	var doneCh = make(chan struct{})
-	t.pool[params] = append(t.pool[params], treeWalkerPoolInfo{
+	var doneCh = make(chan struct{}, 1) // Buffered channel so that Release() never blocks.
+	walkInfo := treeWalkerPoolInfo{
 		treeWalkerCh:     treeWalkerCh,
 		treeWalkerDoneCh: treeWalkerDoneCh,
 		doneCh:           doneCh,
-	})
+	}
+	t.pool[params] = append(t.pool[params], walkInfo)
 
 	// Safe expiry of treeWalkerCh after timeout.
 	go func(doneCh <-chan struct{}) {
@@ -102,12 +106,18 @@ func (t treeWalkerPool) Set(params listParams, treeWalkerCh chan treeWalker, tre
 		// Wait until timeOut
 		case <-time.After(t.timeOut):
 			t.lock.Lock()
-			treeWalk := t.pool[params]
-			treeWalk = append(treeWalk[:treeWalkerIdx], treeWalk[treeWalkerIdx+1:]...)
-			if len(treeWalk) == 0 {
-				delete(t.pool, params)
-			} else {
-				t.pool[params] = treeWalk
+			walks, ok := t.pool[params]
+			if ok {
+				for i, walk := range walks {
+					if walk == walkInfo {
+						walks = append(walks[:i], walks[i+1:]...)
+					}
+				}
+				if len(walks) == 0 {
+					delete(t.pool, params)
+				} else {
+					t.pool[params] = walks
+				}
 			}
 			close(treeWalkerDoneCh)
 			t.lock.Unlock()
