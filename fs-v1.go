@@ -232,20 +232,22 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 		buf := make([]byte, blockSizeV1)
 		for {
 			n, rErr := data.Read(buf)
-			if rErr == io.EOF {
-				break
-			}
-			if rErr != nil {
+			if rErr != nil && rErr != io.EOF {
 				return "", toObjectErr(rErr, bucket, object)
 			}
-			// Update md5 writer.
-			md5Writer.Write(buf[:n])
-			m, wErr := fs.storage.AppendFile(minioMetaBucket, tempObj, buf[:n])
-			if wErr != nil {
-				return "", toObjectErr(wErr, bucket, object)
+			if n > 0 {
+				// Update md5 writer.
+				md5Writer.Write(buf[:n])
+				m, wErr := fs.storage.AppendFile(minioMetaBucket, tempObj, buf[:n])
+				if wErr != nil {
+					return "", toObjectErr(wErr, bucket, object)
+				}
+				if m != int64(len(buf[:n])) {
+					return "", toObjectErr(errUnexpected, bucket, object)
+				}
 			}
-			if m != int64(len(buf[:n])) {
-				return "", toObjectErr(errUnexpected, bucket, object)
+			if rErr == io.EOF {
+				break
 			}
 		}
 	}
