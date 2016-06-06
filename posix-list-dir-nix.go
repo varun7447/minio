@@ -21,7 +21,6 @@ package main
 import (
 	"os"
 	"path"
-	"runtime"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -35,43 +34,85 @@ const (
 	readDirentBufSize = 4096 * 25
 )
 
-// actual length of the byte array from the c - world.
-func clen(n []byte) int {
-	for i := 0; i < len(n); i++ {
-		if n[i] == 0 {
-			return i
-		}
+// readInt returns the size-bytes unsigned integer in native byte order at offset off.
+func readInt(buf []byte, off, size uintptr) (u uint64, ok bool) {
+	if len(buf) < int(off+size) {
+		return 0, false
 	}
-	return len(n)
+	switch size {
+	case 1:
+		u = uint64(buf[off])
+	case 2:
+		var u16 uint16
+		b1 := (*[2]byte)(unsafe.Pointer(&u16))
+		b2 := (*[2]byte)(unsafe.Pointer(&buf[off]))
+		copy((*b1)[:], (*b2)[:])
+		u = uint64(u16)
+	case 4:
+		var u32 uint32
+		b1 := (*[4]byte)(unsafe.Pointer(&u32))
+		b2 := (*[4]byte)(unsafe.Pointer(&buf[off]))
+		copy((*b1)[:], (*b2)[:])
+		u = uint64(u32)
+	case 8:
+		b1 := (*[8]byte)(unsafe.Pointer(&u))
+		b2 := (*[8]byte)(unsafe.Pointer(&buf[off]))
+		copy((*b1)[:], (*b2)[:])
+	default:
+		panic("syscall: readInt with unsupported size")
+	}
+	return u, true
 }
 
-// parseDirents - inspired from
-// https://golang.org/src/syscall/syscall_<os>.go
-func parseDirents(dirPath string, buf []byte) (entries []string, err error) {
-	bufidx := 0
-	for bufidx < len(buf) {
-		dirent := (*syscall.Dirent)(unsafe.Pointer(&buf[bufidx]))
-		// On non-Linux operating systems for rec length of zero means
-		// we have reached EOF break out.
-		if runtime.GOOS != "linux" && dirent.Reclen == 0 {
+func direntReclen(buf []byte) (uint64, bool) {
+	return readInt(buf, unsafe.Offsetof(syscall.Dirent{}.Reclen), unsafe.Sizeof(syscall.Dirent{}.Reclen))
+}
+
+// parseDirents - parses input directory entries
+// from dirent buffer. Returns back parsed
+// slice of entries.
+//
+// This implementation is based on, modified to
+// return back directories with a trailing '/'
+// separator.
+//
+// https://golang.org/src/syscall/dirent.go
+func parseDirents(dirPath string, buf []byte) (entries []string) {
+	for len(buf) > 0 {
+		dirent := (*syscall.Dirent)(unsafe.Pointer(&buf[0]))
+		reclen, ok := direntReclen(buf)
+		if !ok || reclen > uint64(len(buf)) {
 			break
 		}
-		bufidx += int(dirent.Reclen)
-		// Skip if they are absent in directory.
-		if isEmptyDirent(dirent) {
+		rec := buf[:reclen]
+		buf = buf[reclen:]
+		ino, ok := direntIno(rec)
+		if !ok {
+			break
+		}
+		if ino == 0 { // File absent in directory.
 			continue
 		}
-		bytes := (*[10000]byte)(unsafe.Pointer(&dirent.Name[0]))
-		var name = string(bytes[0:clen(bytes[:])])
-		// Reserved names skip them.
-		if name == "." || name == ".." {
+		const namoff = uint64(unsafe.Offsetof(syscall.Dirent{}.Name))
+		namlen, ok := direntNamlen(rec)
+		if !ok || namoff+namlen > uint64(len(rec)) {
+			break
+		}
+		n := rec[namoff : namoff+namlen]
+		for i, c := range n {
+			if c == 0 {
+				n = n[:i]
+				break
+			}
+		}
+		name := string(n)
+		if name == "." || name == ".." { // Useless names
 			continue
 		}
 		// Skip special files.
 		if hasPosixReservedPrefix(name) {
 			continue
 		}
-
 		switch dirent.Type {
 		case syscall.DT_DIR:
 			entries = append(entries, name+slashSeparator)
@@ -79,11 +120,9 @@ func parseDirents(dirPath string, buf []byte) (entries []string, err error) {
 			entries = append(entries, name)
 		case syscall.DT_LNK, syscall.DT_UNKNOWN:
 			// If its symbolic link, follow the link using os.Stat()
-
 			// On Linux XFS does not implement d_type for on disk
 			// format << v5. Fall back to Stat().
-			var fi os.FileInfo
-			fi, err = os.Stat(path.Join(dirPath, name))
+			fi, err := os.Stat(path.Join(dirPath, name))
 			if err != nil {
 				// If file does not exist, we continue and skip it.
 				// Could happen if it was deleted in the middle while
@@ -92,7 +131,11 @@ func parseDirents(dirPath string, buf []byte) (entries []string, err error) {
 					err = nil
 					continue
 				}
-				return nil, err
+				errorIf(err, "Unable to stat path at %s/%s", dirPath, name)
+				// Explicity not returning any entries upon
+				// unrecognized error from Stat. So that
+				// we can investigate.
+				return nil
 			}
 			if fi.IsDir() {
 				entries = append(entries, fi.Name()+slashSeparator)
@@ -104,7 +147,7 @@ func parseDirents(dirPath string, buf []byte) (entries []string, err error) {
 			continue
 		}
 	}
-	return entries, nil
+	return entries
 }
 
 // Return all the entries at the directory dirPath.
@@ -126,19 +169,20 @@ func readDir(dirPath string) (entries []string, err error) {
 	defer d.Close()
 
 	fd := int(d.Fd())
+	// List all entries at dirPath.
 	for {
 		nbuf, err := syscall.ReadDirent(fd, buf)
 		if err != nil {
 			return nil, err
 		}
 		if nbuf <= 0 {
-			break
+			break // EOF
 		}
-		var tmpEntries []string
-		if tmpEntries, err = parseDirents(dirPath, buf[:nbuf]); err != nil {
-			return nil, err
+		newEntries := parseDirents(dirPath, buf[:nbuf])
+		if len(newEntries) == 0 {
+			break // EOF or some directory traversal errors.
 		}
-		entries = append(entries, tmpEntries...)
+		entries = append(entries, newEntries...)
 	}
 	return
 }
