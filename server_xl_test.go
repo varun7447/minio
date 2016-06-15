@@ -227,7 +227,7 @@ func (s *MyAPIXLSuite) newRequest(method, urlStr string, contentLength int64, bo
 }
 
 // putSimpleObjectMultipart uploads a multipart object consisting of 2 parts, repeated constant byte string and a single byte ('0').
-func (s *MyAPIXLSuite) putSimpleObjectMultipart(bucketName, object string) (response *http.Response, err error){
+func (s *MyAPIXLSuite) putSimpleObjectMultipart(bucketName, object string) (response *http.Response, err error) {
 	request, err := s.newRequest("POST", testAPIXLServer.URL+"/"+bucketName+"/"+object+"?uploads", 0, nil)
 	if err != nil {
 		return nil, err
@@ -1622,7 +1622,7 @@ func (s *MyAPIXLSuite) TestMultipleObjectsOverlappingPath(c *C) {
 	client = http.Client{}
 	response, err = client.Do(request)
 	c.Assert(err, IsNil)
-	verifyError(c, response, "InternalError", "We encountered an internal error, please try again.", http.StatusInternalServerError)
+	c.Assert(response, Not(Equals), http.StatusOK)
 
 	// Put object a/b/c/d, should succeed and overwrite original object
 	buffer3 := bytes.NewReader([]byte("hello three"))
@@ -1660,7 +1660,7 @@ func (s *MyAPIXLSuite) TestMultipleObjectsOverlappingPath(c *C) {
 	// Put object multipart a/b/c, should fail because it is a directory
 	response, err = s.putSimpleObjectMultipart("multipleobjects", "a/b/c")
 	c.Assert(err, IsNil)
-	verifyError(c, response, "InternalError", "We encountered an internal error, please try again.", http.StatusInternalServerError)
+	c.Assert(response, Not(Equals), http.StatusOK)
 
 	// Put object multipart a/b/c/d, should succeed and overwrite previous object
 	response, err = s.putSimpleObjectMultipart("multipleobjects", "a/b/c/d")
@@ -1687,7 +1687,6 @@ func (s *MyAPIXLSuite) TestMultipleObjectsOverlappingPath(c *C) {
 	response, err = s.putSimpleObjectMultipart("multipleobjects", "a/b/c/d/e")
 	c.Assert(err, IsNil)
 	verifyError(c, response, "XMinioObjectExistsAsDirectory", "Object name already exists as a directory.", http.StatusConflict)
-
 
 	// Delete object a/b/c/d, should succeed
 	request, err = s.newRequest("DELETE", testAPIXLServer.URL+"/multipleobjects/a/b/c/d", 0, nil)
