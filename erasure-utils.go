@@ -21,6 +21,8 @@ import (
 	"hash"
 	"io"
 
+	"bytes"
+
 	"github.com/klauspost/reedsolomon"
 )
 
@@ -63,9 +65,9 @@ func hashSum(disk StorageAPI, volume, path string, writer hash.Hash) ([]byte, er
 }
 
 // getDataBlocks - fetches the data block only part of the input encoded blocks.
-func getDataBlocks(enBlocks [][]byte, dataBlocks int, curBlockSize int) (data []byte, err error) {
+func getDataBlocks(enBlocks [][]byte, dataBlocks int, curBlockSize int, writer io.Writer) (err error) {
 	if len(enBlocks) < dataBlocks {
-		return nil, reedsolomon.ErrTooFewShards
+		return reedsolomon.ErrTooFewShards
 	}
 	size := 0
 	blocks := enBlocks[:dataBlocks]
@@ -73,19 +75,21 @@ func getDataBlocks(enBlocks [][]byte, dataBlocks int, curBlockSize int) (data []
 		size += len(block)
 	}
 	if size < curBlockSize {
-		return nil, reedsolomon.ErrShortData
+		return reedsolomon.ErrShortData
 	}
 
 	write := curBlockSize
 	for _, block := range blocks {
 		if write < len(block) {
-			data = append(data, block[:write]...)
-			return data, nil
+			// data = append(data, block[:write]...)
+			io.Copy(writer, bytes.NewReader(block[:write]))
+			return nil
 		}
-		data = append(data, block...)
+		// data = append(data, block...)
+		io.Copy(writer, bytes.NewReader(block))
 		write -= len(block)
 	}
-	return data, nil
+	return nil
 }
 
 // checkBlockSize return the size of a single block.

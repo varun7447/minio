@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"io"
@@ -72,7 +71,7 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 	}
 
 	// Get part index offset.
-	partIndex, partOffset, err := xlMeta.ObjectToPartOffset(startOffset)
+	partIndex, _, err := xlMeta.ObjectToPartOffset(startOffset)
 	if err != nil {
 		return toObjectErr(err, bucket, object)
 	}
@@ -90,30 +89,30 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 		partSize := xlMeta.Parts[partIndex].Size
 
 		// Start reading the part name.
-		var buffer []byte
-		buffer, err = erasureReadFile(onlineDisks, bucket, pathJoin(object, partName), partName, partSize, eInfos)
+		// var buffer []byte
+		err = erasureReadFile(onlineDisks, bucket, pathJoin(object, partName), partName, partSize, eInfos, writer)
 		if err != nil {
 			return err
 		}
 
-		// Copy to client until length requested.
-		if length > int64(len(buffer)) {
-			var m int64
-			m, err = io.Copy(writer, bytes.NewReader(buffer[partOffset:]))
-			if err != nil {
-				return err
-			}
-			length -= m
-		} else {
-			_, err = io.CopyN(writer, bytes.NewReader(buffer[partOffset:]), length)
-			if err != nil {
-				return err
-			}
-			return nil
-		}
+		// // Copy to client until length requested.
+		// if length > int64(len(buffer)) {
+		// 	var m int64
+		// 	m, err = io.Copy(writer, bytes.NewReader(buffer[partOffset:]))
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// 	length -= m
+		// } else {
+		// 	_, err = io.CopyN(writer, bytes.NewReader(buffer[partOffset:]), length)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// 	return nil
+		// }
 
 		// Reset part offset to 0 to read rest of the part from the beginning.
-		partOffset = 0
+		// partOffset = 0
 	} // End of read all parts loop.
 
 	// Return success.

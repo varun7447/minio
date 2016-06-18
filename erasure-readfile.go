@@ -19,6 +19,8 @@ package main
 import (
 	"encoding/hex"
 	"errors"
+	"io"
+	"sync"
 
 	"github.com/klauspost/reedsolomon"
 )
@@ -28,9 +30,9 @@ import (
 // is convenient to return them as byte slice. This function also
 // supports bit-rot detection by verifying checksum of individual
 // block's checksum.
-func erasureReadFile(disks []StorageAPI, volume string, path string, partName string, size int64, eInfos []erasureInfo) ([]byte, error) {
+func erasureReadFile(disks []StorageAPI, volume string, path string, partName string, size int64, eInfos []erasureInfo, writer io.Writer) error {
 	// Return data buffer.
-	var buffer []byte
+	// var buffer []byte
 
 	// Total size left
 	totalSizeLeft := size
@@ -62,71 +64,81 @@ func erasureReadFile(disks []StorageAPI, volume string, path string, partName st
 		enBlocks := make([][]byte, len(disks))
 
 		// Counter to keep success data blocks.
-		var successDataBlocksCount = 0
+		// var successDataBlocksCount = 0
 		var noReconstruct bool // Set for no reconstruction.
 
+		wg := &sync.WaitGroup{}
 		// Read from all the disks.
 		for index, disk := range disks {
-			blockIndex := eInfo.Distribution[index] - 1
-			if !isValidBlock(disks, volume, path, toDiskIndex(blockIndex, eInfo.Distribution), blockCheckSums) {
-				continue
+			if index == eInfo.DataBlocks {
+				break
 			}
-			if disk == nil {
-				continue
-			}
-			// Initialize shard slice and fill the data from each parts.
-			enBlocks[blockIndex] = make([]byte, curEncBlockSize)
-			// Read the necessary blocks.
-			_, err := disk.ReadFile(volume, path, offsetEncOffset, enBlocks[blockIndex])
-			if err != nil {
-				enBlocks[blockIndex] = nil
-			}
-			// Verify if we have successfully read all the data blocks.
-			if blockIndex < eInfo.DataBlocks && enBlocks[blockIndex] != nil {
-				successDataBlocksCount++
-				// Set when we have all the data blocks and no
-				// reconstruction is needed, so that we can avoid
-				// erasure reconstruction.
-				noReconstruct = successDataBlocksCount == eInfo.DataBlocks
-				if noReconstruct {
-					// Break out we have read all the data blocks.
-					break
+			wg.Add(1)
+			go func(index int, disk StorageAPI) {
+				defer wg.Done()
+				blockIndex := eInfo.Distribution[index] - 1
+				if !isValidBlock(disks, volume, path, toDiskIndex(blockIndex, eInfo.Distribution), blockCheckSums) {
+					// continue
+					return
 				}
-			}
+				if disk == nil {
+					// continue
+					return
+				}
+				// Initialize shard slice and fill the data from each parts.
+				enBlocks[blockIndex] = make([]byte, curEncBlockSize)
+				// Read the necessary blocks.
+				_, err := disk.ReadFile(volume, path, offsetEncOffset, enBlocks[blockIndex])
+				if err != nil {
+					enBlocks[blockIndex] = nil
+				}
+			}(index, disk)
+			// // Verify if we have successfully read all the data blocks.
+			// if blockIndex < eInfo.DataBlocks && enBlocks[blockIndex] != nil {
+			// 	successDataBlocksCount++
+			// 	// Set when we have all the data blocks and no
+			// 	// reconstruction is needed, so that we can avoid
+			// 	// erasure reconstruction.
+			// 	noReconstruct = successDataBlocksCount == eInfo.DataBlocks
+			// 	if noReconstruct {
+			// 		// Break out we have read all the data blocks.
+			// 		break
+			// 	}
+			// }
 		}
-
+		wg.Wait()
 		// Check blocks if they are all zero in length, we have corruption return error.
 		if checkBlockSize(enBlocks) == 0 {
-			return nil, errXLDataCorrupt
+			return errXLDataCorrupt
 		}
 
 		// Verify if reconstruction is needed, proceed with reconstruction.
 		if !noReconstruct {
 			err := decodeData(enBlocks, eInfo.DataBlocks, eInfo.ParityBlocks)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 
 		// Get data blocks from encoded blocks.
-		dataBlocks, err := getDataBlocks(enBlocks, eInfo.DataBlocks, int(curBlockSize))
+		err := getDataBlocks(enBlocks, eInfo.DataBlocks, int(curBlockSize), writer)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		// Copy data blocks.
-		buffer = append(buffer, dataBlocks...)
+		// // Copy data blocks.
+		// buffer = append(buffer, dataBlocks...)
 
 		// Negate the 'n' size written to client.
-		totalSizeLeft -= int64(len(dataBlocks))
+		totalSizeLeft -= int64(curBlockSize)
 
 		// Increase the offset to move forward.
-		startOffset += int64(len(dataBlocks))
+		startOffset += int64(curBlockSize)
 
 		// Relenquish memory.
-		dataBlocks = nil
+		// dataBlocks = nil
 	}
-	return buffer, nil
+	return nil
 }
 
 // PartObjectChecksum - returns the checksum for the part name from the checksum slice.
