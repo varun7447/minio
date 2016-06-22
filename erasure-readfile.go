@@ -196,26 +196,51 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 			// For the last block, the block size can be less than BlockSize.
 			blockSize = totalLength % eInfo.BlockSize
 		}
-		data, err := getDataBlocks(enBlocks, eInfo.DataBlocks, int(blockSize))
+		dataArr, err := getDataBlocks(enBlocks, eInfo.DataBlocks, int(blockSize))
 		if err != nil {
 			return bytesWritten, err
 		}
 
 		// If this is start block, skip unwanted bytes.
 		if block == startBlock {
-			data = data[bytesToSkip:]
+			for i, data := range dataArr {
+				if bytesToSkip == 0 {
+					break
+				}
+				if len(data) > int(bytesToSkip) {
+					dataArr[i] = data[bytesToSkip:]
+					break
+				}
+				bytesToSkip -= int64(len(data))
+				dataArr[i] = nil
+			}
 		}
 
-		if len(data) > int(length-bytesWritten) {
-			// We should not send more data than what was requested.
-			data = data[:length-bytesWritten]
+		// Make sure we don't write more than what was requested.
+		remaining := length - bytesWritten
+		if remaining < blockSize {
+			for i, data := range dataArr {
+				if remaining == 0 {
+					dataArr[i] = nil
+					continue
+				}
+				if len(data) > int(remaining) {
+					dataArr[i] = data[:remaining]
+					remaining = 0
+					continue
+				}
+				remaining -= int64(len(data))
+			}
 		}
 
-		_, err = writer.Write(data)
-		if err != nil {
-			return bytesWritten, err
+		// Write data blocks to the writer.
+		for _, data := range dataArr {
+			_, err = writer.Write(data)
+			if err != nil {
+				return bytesWritten, err
+			}
+			bytesWritten += int64(len(data))
 		}
-		bytesWritten += int64(len(data))
 	}
 
 	return bytesWritten, nil

@@ -63,10 +63,11 @@ func hashSum(disk StorageAPI, volume, path string, writer hash.Hash) ([]byte, er
 }
 
 // getDataBlocks - fetches the data block only part of the input encoded blocks.
-func getDataBlocks(enBlocks [][]byte, dataBlocks int, curBlockSize int) (data []byte, err error) {
+func getDataBlocks(enBlocks [][]byte, dataBlocks int, curBlockSize int) (data [][]byte, err error) {
 	if len(enBlocks) < dataBlocks {
 		return nil, reedsolomon.ErrTooFewShards
 	}
+	data = make([][]byte, dataBlocks)
 	size := 0
 	blocks := enBlocks[:dataBlocks]
 	for _, block := range blocks {
@@ -77,13 +78,13 @@ func getDataBlocks(enBlocks [][]byte, dataBlocks int, curBlockSize int) (data []
 	}
 
 	write := curBlockSize
-	for _, block := range blocks {
-		if write < len(block) {
-			data = append(data, block[:write]...)
+	for i := range blocks {
+		if write < len(blocks[i]) {
+			data[i] = blocks[i][:write]
 			return data, nil
 		}
-		data = append(data, block...)
-		write -= len(block)
+		data[i] = blocks[i]
+		write -= len(blocks[i])
 	}
 	return data, nil
 }
