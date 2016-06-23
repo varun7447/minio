@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -126,13 +127,6 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 	// DataBlocks. The extra space will have 0-padding.
 	chunkSize := getEncodedBlockLen(eInfo.BlockSize, eInfo.DataBlocks)
 
-	// Allocate buffer for chunk size.
-	for index := range enBlocks {
-		bufp := blockPool.Get().(*[]byte)
-		defer blockPool.Put(bufp)
-		enBlocks[index] = *bufp
-	}
-
 	// Get start and end block, also bytes to be skipped based on the input offset.
 	startBlock, endBlock, bytesToSkip := getBlockInfo(offset, totalLength, eInfo.BlockSize)
 
@@ -140,6 +134,12 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 	// need to read parity disks. If one of the data disk is missing we need to read DataBlocks+1 number
 	// of disks. Once read, we Reconstruct() missing data if needed and write it to the given writer.
 	for block := startBlock; bytesWritten < length; block++ {
+		curChunkSize := chunkSize
+		if block == endBlock && (totalLength%eInfo.BlockSize != 0) {
+			// If this is the last block and size of the block is < BlockSize.
+			curChunkSize = getEncodedBlockLen(totalLength%eInfo.BlockSize, eInfo.DataBlocks)
+		}
+
 		// Figure out the number of disks that are needed for the read.
 		// We will need DataBlocks number of disks if all the data disks are up.
 		// We will need DataBlocks+1 number of disks even if one of the data disks is down.
@@ -191,19 +191,16 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 				// NOTE: That for the offset calculation we have to use chunkSize and
 				// not curChunkSize. If we use curChunkSize for offset calculation
 				// then it can result in wrong offset for the last block.
-				n, err := disk.ReadFile(volume, path, block*chunkSize, enBlocks[index])
-				if n > 0 {
-					// Copy the read blocks.
-					enBlocks[index] = enBlocks[index][:n]
-				}
+				var buffer = new(bytes.Buffer)
+				err := copyN(buffer, disk, volume, path, block*chunkSize, curChunkSize)
 				if err != nil {
-					// Verify we hit errors with good conditions.
-					if err == io.EOF || err == io.ErrUnexpectedEOF {
-						return
-					}
 					// So that we don't read from this disk for the next block.
 					orderedDisks[index] = nil
+					return
 				}
+				// Copy the read blocks.
+				enBlocks[index] = buffer.Bytes()
+
 				// Successfully read.
 			}(index, disk)
 
@@ -247,7 +244,8 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 				// NOTE: that for the offset calculation we have to use chunkSize and not
 				// curChunkSize. If we use curChunkSize for offset calculation then it
 				// can result in wrong offset for the last block.
-				n, err := orderedDisks[index].ReadFile(volume, path, block*chunkSize, enBlocks[index])
+				var buffer = new(bytes.Buffer)
+				err := copyN(buffer, orderedDisks[index], volume, path, block*chunkSize, curChunkSize)
 				if err != nil {
 					// ERROR: Mark nil so that we don't read from
 					// this disk for the next block.
@@ -256,7 +254,7 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 				}
 
 				// Successfully read data.
-				enBlocks[index] = enBlocks[index][:n]
+				enBlocks[index] = buffer.Bytes()
 			}
 
 			// Reconstruct the missing data blocks.

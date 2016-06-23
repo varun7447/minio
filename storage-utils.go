@@ -21,6 +21,37 @@ import (
 	"io"
 )
 
+func copyN(writer io.Writer, disk StorageAPI, volume string, path string, offset int64, length int64) error {
+	buf := make([]byte, 32*1024)
+
+	// Read into writer until length.
+	for length > 0 {
+		n, err := disk.ReadFile(volume, path, offset, buf)
+		if n > 0 {
+			var m int
+			m, err = writer.Write(buf[:n])
+			if err != nil {
+				return err
+			}
+
+			// Decrement the length.
+			length -= int64(m)
+
+			// Progress the offset.
+			offset += int64(m)
+		}
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				break
+			}
+			return err
+		}
+	}
+
+	// Success.
+	return nil
+}
+
 // copyBuffer - copies from disk, volume, path to input writer until either EOF
 // is reached at volume, path or an error occurs. A success copyBuffer returns
 // err == nil, not err == EOF. Because copyBuffer is defined to read from path
@@ -40,7 +71,14 @@ func copyBuffer(writer io.Writer, disk StorageAPI, volume string, path string, b
 	for {
 		n, err := disk.ReadFile(volume, path, startOffset, buf)
 		if n > 0 {
-			writer.Write(buf[:n])
+			var m int
+			m, err = writer.Write(buf[:n])
+			if err != nil {
+				return err
+			}
+			if int64(m) != n {
+				return io.ErrShortWrite
+			}
 		}
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
