@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -27,34 +26,29 @@ import (
 )
 
 // isSuccessDecodeBlocks - do we have all the blocks to be successfully decoded?.
-// input disks here are expected to be ordered i.e parityBlocks
-// are preceded by dataBlocks. For for information look at getOrderedDisks().
-func isSuccessDecodeBlocks(disks []StorageAPI, dataBlocks int) bool {
+func isSuccessDecodeBlocks(enBlocks [][]byte, dataBlocks int) bool {
 	// Count number of data and parity blocks that were read.
 	var successDataBlocksCount = 0
 	var successParityBlocksCount = 0
-	for index, disk := range disks {
-		if disk == nil {
+	for index := range enBlocks {
+		if enBlocks[index] == nil {
 			continue
 		}
 		if index < dataBlocks {
 			successDataBlocksCount++
-			continue
+		} else {
+			successParityBlocksCount++
 		}
-		successParityBlocksCount++
 	}
-	// Returns true if we have atleast dataBlocks + 1 parity.
-	return successDataBlocksCount+successParityBlocksCount >= dataBlocks+1
+	return successDataBlocksCount == dataBlocks || successDataBlocksCount+successParityBlocksCount >= dataBlocks+1
 }
 
 // isSuccessDataBlocks - do we have all the data blocks?
-// input disks here are expected to be ordered i.e parityBlocks
-// are preceded by dataBlocks. For for information look at getOrderedDisks().
-func isSuccessDataBlocks(disks []StorageAPI, dataBlocks int) bool {
-	// Count number of data blocks that were read.
+func isSuccessDataBlocks(enBlocks [][]byte, dataBlocks int) bool {
+	// Count number of data and parity blocks that were read.
 	var successDataBlocksCount = 0
-	for index, disk := range disks[:dataBlocks] {
-		if disk == nil {
+	for index := range enBlocks {
+		if enBlocks[index] == nil {
 			continue
 		}
 		if index < dataBlocks {
@@ -85,6 +79,52 @@ var blockPool = sync.Pool{
 		b := make([]byte, getEncodedBlockLen(blockSizeV1, 8))
 		return &b
 	},
+}
+
+// Return readable disks slice from which we can read parallely.
+func getReadDisks(orderedDisks []StorageAPI, index int, dataBlocks int) (readDisks []StorageAPI, nextIndex int, err error) {
+	readDisks = make([]StorageAPI, len(orderedDisks))
+	dataDisks := 0
+	parityDisks := 0
+	// Count already read data and parity chunks.
+	for i := 0; i < index; i++ {
+		if orderedDisks[i] == nil {
+			continue
+		}
+		if i < dataBlocks {
+			dataDisks++
+		} else {
+			parityDisks++
+		}
+	}
+
+	// sanity checks - we should never have this situation.
+	if dataDisks == dataBlocks {
+		return nil, 0, errUnexpected
+	}
+	if dataDisks+parityDisks >= dataBlocks+1 {
+		return nil, 0, errUnexpected
+	}
+
+	// Find the disks from which next set of parallel reads should happen.
+	for i := index; i < len(orderedDisks); i++ {
+		if orderedDisks[i] == nil {
+			continue
+		}
+		if i < dataBlocks {
+			dataDisks++
+		} else {
+			parityDisks++
+		}
+		readDisks[i] = orderedDisks[i]
+		if dataDisks == dataBlocks {
+			return readDisks, i + 1, nil
+		}
+		if dataDisks+parityDisks == dataBlocks+1 {
+			return readDisks, i + 1, nil
+		}
+	}
+	return nil, 0, errXLReadQuorum
 }
 
 // erasureReadFile - read bytes from erasure coded files and writes to given writer.
@@ -125,14 +165,21 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 	// Total bytes written to writer
 	bytesWritten := int64(0)
 
-	// Each element of enBlocks holds curChunkSize'd amount of data read from its corresponding disk.
-	enBlocks := make([][]byte, len(orderedDisks))
-
 	// chunkSize is roughly BlockSize/DataBlocks.
 	// chunkSize is calculated such that chunkSize*DataBlocks accommodates BlockSize bytes.
 	// So chunkSize*DataBlocks can be slightly larger than BlockSize if BlockSize is not divisible by
 	// DataBlocks. The extra space will have 0-padding.
 	chunkSize := getEncodedBlockLen(eInfo.BlockSize, eInfo.DataBlocks)
+
+	// Each element of enBlocks holds chunkSize'd amount of data read from its corresponding disk.
+	enBlocksRef := make([][]byte, len(orderedDisks))
+	// Used for rs.Reconstruct()
+	enBlocks := make([][]byte, len(orderedDisks))
+
+	// Allocate buffer for chunk size.
+	for index := range enBlocksRef {
+		enBlocksRef[index] = make([]byte, chunkSize)
+	}
 
 	// Get start and end block, also bytes to be skipped based on the input offset.
 	startBlock, endBlock, bytesToSkip := getBlockInfo(offset, totalLength, eInfo.BlockSize)
@@ -141,134 +188,76 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 	// need to read parity disks. If one of the data disk is missing we need to read DataBlocks+1 number
 	// of disks. Once read, we Reconstruct() missing data if needed and write it to the given writer.
 	for block := startBlock; bytesWritten < length; block++ {
-		curChunkSize := chunkSize
-		if block == endBlock && (totalLength%eInfo.BlockSize != 0) {
-			// If this is the last block and size of the block is < BlockSize.
-			curChunkSize = getEncodedBlockLen(totalLength%eInfo.BlockSize, eInfo.DataBlocks)
+		for index := range enBlocks {
+			// Reset all slice elements to nil.
+			enBlocks[index] = nil
 		}
-
-		// Figure out the number of disks that are needed for the read.
-		// We will need DataBlocks number of disks if all the data disks are up.
-		// We will need DataBlocks+1 number of disks even if one of the data disks is down.
-		readableDiskCount := 0
-
-		// Count the number of data disks that are up.
-		for _, disk := range orderedDisks[:eInfo.DataBlocks] {
-			if disk == nil {
-				continue
+		// nextIndex - index from which next set of parallel reads should happen.
+		nextIndex := 0
+		// parallelRead() reads DataBlocks number of disks if all data disks are available or
+		// DataBlocks+1 number of disks if one of the data disks is missing. All the reads
+		// happen in parallel.
+		var parallelRead func() error
+		parallelRead = func() error {
+			if isSuccessDecodeBlocks(enBlocks, eInfo.DataBlocks) {
+				// If enough blocks are available to do rs.Reconstruct()
+				return nil
 			}
-			readableDiskCount++
-		}
-
-		// Readable disks..
-		if readableDiskCount < eInfo.DataBlocks {
-			// Not enough data disks up, so we need DataBlocks+1 number
-			// of disks for reed-solomon Reconstruct()
-			readableDiskCount = eInfo.DataBlocks + 1
-		}
-
-		// Initialize wait group.
-		var wg = &sync.WaitGroup{}
-
-		// Current disk index from which to read, this will be used later
-		// in case one of the parallel reads fails.
-		index := 0
-
-		// Read from the disks in parallel.
-		for _, disk := range orderedDisks {
-			if disk == nil {
-				index++
-				continue
+			if nextIndex == len(orderedDisks) {
+				// No more disks to read from.
+				return errXLReadQuorum
 			}
-
-			// Increment wait group.
-			wg.Add(1)
-
-			// Start reading from disk in a go-routine.
-			go func(index int, disk StorageAPI) {
-				defer wg.Done()
-
-				// Verify bit rot for this disk slice.
-				if !bitrotVerify(index) {
-					// So that we don't read from this disk for the next block.
-					orderedDisks[index] = nil
-					return
+			// readDisks - disks from which we need to read in parallel.
+			var readDisks []StorageAPI
+			var err error
+			readDisks, nextIndex, err = getReadDisks(orderedDisks, nextIndex, eInfo.DataBlocks)
+			if err != nil {
+				return err
+			}
+			// WaitGroup to synchronise the read go-routines.
+			wg := &sync.WaitGroup{}
+			// Loop to spawn read go-routines in parallel.
+			for index := range readDisks {
+				if readDisks[index] == nil {
+					continue
 				}
+				wg.Add(1)
+				// Read go-routine - reads chunk from readDisk[index]
+				go func(index int) {
+					defer wg.Done()
 
-				// NOTE: That for the offset calculation we have to use chunkSize and
-				// not curChunkSize. If we use curChunkSize for offset calculation
-				// then it can result in wrong offset for the last block.
-				buffer := new(bytes.Buffer)
-				blockSize := block * chunkSize
-				err := copyN(buffer, disk, volume, path, blockSize, curChunkSize)
-				if err != nil {
-					// So that we don't read from this disk for the next block.
-					orderedDisks[index] = nil
-					return
-				}
-				// Copy the read blocks.
-				enBlocks[index] = buffer.Bytes()
-
-				// Successfully read.
-			}(index, disk)
-
-			index++
-			readableDiskCount--
-			// We have read all the readable disks.
-			if readableDiskCount == 0 {
-				break
+					// Verify bit rot for the file on this disk.
+					if !bitrotVerify(index) {
+						// So that we don't read from this disk for the next block.
+						orderedDisks[index] = nil
+						return
+					}
+					n, err := readDisks[index].ReadFile(volume, path, block*chunkSize, enBlocksRef[index])
+					if n > 0 {
+						enBlocks[index] = enBlocksRef[index][:n]
+					}
+					if err != nil {
+						if err == io.EOF || err == io.ErrUnexpectedEOF {
+							// These are valid errors.
+							return
+						}
+						// So that we don't read from this disk for the next block.
+						orderedDisks[index] = nil
+					}
+					// Successfully read.
+				}(index)
 			}
+			wg.Wait()
+			return parallelRead()
 		}
-
-		// Wait for all the reads to finish.
-		wg.Wait()
-
-		// FIXME: make this parallel.
-
+		err := parallelRead()
+		if err != nil {
+			return bytesWritten, err
+		}
 		// If we have all the data blocks no need to decode.
-		if !isSuccessDataBlocks(orderedDisks, eInfo.DataBlocks) {
-			// If we don't have DataBlocks number of data blocks we
-			// will have to read enough parity blocks such that we
-			// have DataBlocks+1 number for blocks for rs.Reconstruct().
-			// index is either dataBlocks or dataBlocks + 1.
-			for ; index < len(orderedDisks); index++ {
-				// We have enough blocks to decode, break out.
-				if isSuccessDecodeBlocks(orderedDisks, eInfo.DataBlocks) {
-					// We have DataBlocks+1 blocks, enough for rs.Reconstruct()
-					break
-				}
-
-				// This disk was previously set to nil and ignored, do not read again.
-				if orderedDisks[index] == nil {
-					continue
-				}
-
-				// Verify bit-rot for this index.
-				if !bitrotVerify(index) {
-					// Mark nil so that we don't read from this disk for the next block.
-					orderedDisks[index] = nil
-					continue
-				}
-
-				// NOTE: that for the offset calculation we have to use chunkSize and not
-				// curChunkSize. If we use curChunkSize for offset calculation then it
-				// can result in wrong offset for the last block.
-				buffer := new(bytes.Buffer)
-				blockSize := block * chunkSize
-				err := copyN(buffer, orderedDisks[index], volume, path, blockSize, curChunkSize)
-				if err != nil {
-					// ERROR: Mark nil so that we don't read from
-					// this disk for the next block.
-					orderedDisks[index] = nil
-					continue
-				}
-
-				// Successfully read data.
-				enBlocks[index] = buffer.Bytes()
-			}
-
+		if !isSuccessDataBlocks(enBlocks, eInfo.DataBlocks) {
 			// Reconstruct the missing data blocks.
-			err := decodeData(enBlocks, orderedDisks, eInfo.DataBlocks, eInfo.ParityBlocks)
+			err := decodeData(enBlocks, eInfo.DataBlocks, eInfo.ParityBlocks)
 			if err != nil {
 				return bytesWritten, err
 			}
@@ -362,18 +351,11 @@ func isValidBlock(disk StorageAPI, volume, path string, blockCheckSum checkSumIn
 }
 
 // decodeData - decode encoded blocks.
-func decodeData(enBlocks [][]byte, orderedDisks []StorageAPI, dataBlocks, parityBlocks int) error {
+func decodeData(enBlocks [][]byte, dataBlocks, parityBlocks int) error {
 	// Initialized reedsolomon.
 	rs, err := reedsolomon.New(dataBlocks, parityBlocks)
 	if err != nil {
 		return err
-	}
-
-	// Make sure to nil the enBlocks for reconstruction.
-	for index, disk := range orderedDisks {
-		if disk == nil {
-			enBlocks[index] = nil
-		}
 	}
 
 	// Reconstruct encoded blocks.
