@@ -182,15 +182,18 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 				// not curChunkSize. If we use curChunkSize for offset calculation
 				// then it can result in wrong offset for the last block.
 				n, err := disk.ReadFile(volume, path, block*chunkSize, enBlocks[index])
+				if n > 0 {
+					// Copy the read blocks.
+					enBlocks[index] = enBlocks[index][:n]
+				}
 				if err != nil {
+					// Verify we hit errors with good conditions.
+					if err == io.EOF || err == io.ErrUnexpectedEOF {
+						return
+					}
 					// So that we don't read from this disk for the next block.
 					orderedDisks[index] = nil
-					return
 				}
-
-				// Copy the read blocks.
-				enBlocks[index] = enBlocks[index][:n]
-
 				// Successfully read.
 			}(index, disk)
 

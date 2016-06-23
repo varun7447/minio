@@ -46,21 +46,17 @@ func newHash(algo string) hash.Hash {
 	}
 }
 
+// hashSum calculates the hash of the entire path and returns.
 func hashSum(disk StorageAPI, volume, path string, writer hash.Hash) ([]byte, error) {
-	startOffset := int64(0)
-	// Read until io.EOF.
-	for {
-		buf := make([]byte, blockSizeV1)
-		n, err := disk.ReadFile(volume, path, startOffset, buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		writer.Write(buf[:n])
-		startOffset += n
+	// Allocate block size.
+	buf := make([]byte, blockSizeV1) // 10MiB staging buffer for hashing.
+
+	// Copy entire buffer to writer.
+	if err := copyBuffer(writer, disk, volume, path, buf); err != nil {
+		return nil, err
 	}
+
+	// Return the final hash sum.
 	return writer.Sum(nil), nil
 }
 
