@@ -299,7 +299,8 @@ func (fs fsObjects) PutObjectPart(bucket, object, uploadID string, partID int, s
 	// Initialize md5 writer.
 	md5Writer := md5.New()
 
-	var buf = make([]byte, 32*1024) // Allocate 32KiB buffer for staging buffer.
+	// Allocate 32KiB buffer for staging buffer.
+	var buf = make([]byte, 128*1024)
 	for {
 		n, err := io.ReadFull(data, buf)
 		if err == io.EOF {
@@ -488,8 +489,8 @@ func (fs fsObjects) CompleteMultipartUpload(bucket string, object string, upload
 
 	tempObj := path.Join(tmpMetaPrefix, uploadID, "object1")
 
-	// Keep 32KiB staging buffer.
-	var buf = make([]byte, 32*1024)
+	// Allocate 32KiB buffer for staging buffer.
+	var buf = make([]byte, 128*1024)
 
 	// Loop through all parts, validate them and then commit to disk.
 	for i, part := range parts {

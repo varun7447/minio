@@ -70,8 +70,8 @@ func (u uploadsV1) Index(uploadID string) int {
 
 // readUploadsJSON - get all the saved uploads JSON.
 func readUploadsJSON(bucket, object string, disk StorageAPI) (uploadIDs uploadsV1, err error) {
-	// Staging buffer of 32KiB kept for reading `uploads.json`.
-	var buf = make([]byte, 32*1024)
+	// Staging buffer of 128KiB kept for reading `uploads.json`.
+	var buf = make([]byte, 128*1024)
 
 	// Writer holding `uploads.json` content.
 	var buffer = new(bytes.Buffer)

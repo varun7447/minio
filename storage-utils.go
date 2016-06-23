@@ -21,35 +21,45 @@ import (
 	"io"
 )
 
-func copyN(writer io.Writer, disk StorageAPI, volume string, path string, offset int64, length int64) error {
-	buf := make([]byte, 32*1024)
+// copyN - copies from disk, volume, path to input writer until length
+// is reached at volume, path or an error occurs. A success copyN returns
+// err == nil, not err == EOF. Additionally offset can be provided to start
+// the read at. copyN returns io.EOF if there aren't enough data to be read.
+func copyN(writer io.Writer, disk StorageAPI, volume string, path string, offset int64, length int64) (err error) {
+	// Use 128KiB staging buffer to read upto length.
+	buf := make([]byte, 128*1024)
 
 	// Read into writer until length.
 	for length > 0 {
-		n, err := disk.ReadFile(volume, path, offset, buf)
-		if n > 0 {
-			var m int
-			m, err = writer.Write(buf[:n])
-			if err != nil {
-				return err
+		nr, er := disk.ReadFile(volume, path, offset, buf)
+		if nr > 0 {
+			nw, ew := writer.Write(buf[0:nr])
+			if nw > 0 {
+				// Decrement the length.
+				length -= int64(nw)
+
+				// Progress the offset.
+				offset += int64(nw)
 			}
-
-			// Decrement the length.
-			length -= int64(m)
-
-			// Progress the offset.
-			offset += int64(m)
-		}
-		if err != nil {
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
+			if ew != nil {
+				err = ew
 				break
 			}
-			return err
+			if nr != int64(nw) {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er == io.EOF || er == io.ErrUnexpectedEOF {
+			break
+		}
+		if er != nil {
+			err = er
 		}
 	}
 
 	// Success.
-	return nil
+	return err
 }
 
 // copyBuffer - copies from disk, volume, path to input writer until either EOF

@@ -27,6 +27,8 @@ import (
 )
 
 // isSuccessDecodeBlocks - do we have all the blocks to be successfully decoded?.
+// input disks here are expected to be ordered i.e parityBlocks
+// are preceded by dataBlocks. For for information look at getOrderedDisks().
 func isSuccessDecodeBlocks(disks []StorageAPI, dataBlocks int) bool {
 	// Count number of data and parity blocks that were read.
 	var successDataBlocksCount = 0
@@ -41,14 +43,17 @@ func isSuccessDecodeBlocks(disks []StorageAPI, dataBlocks int) bool {
 		}
 		successParityBlocksCount++
 	}
+	// Returns true if we have atleast dataBlocks + 1 parity.
 	return successDataBlocksCount+successParityBlocksCount >= dataBlocks+1
 }
 
 // isSuccessDataBlocks - do we have all the data blocks?
+// input disks here are expected to be ordered i.e parityBlocks
+// are preceded by dataBlocks. For for information look at getOrderedDisks().
 func isSuccessDataBlocks(disks []StorageAPI, dataBlocks int) bool {
-	// Count number of data and parity blocks that were read.
+	// Count number of data blocks that were read.
 	var successDataBlocksCount = 0
-	for index, disk := range disks {
+	for index, disk := range disks[:dataBlocks] {
 		if disk == nil {
 			continue
 		}
@@ -56,10 +61,12 @@ func isSuccessDataBlocks(disks []StorageAPI, dataBlocks int) bool {
 			successDataBlocksCount++
 		}
 	}
+	// Returns true if we have all the dataBlocks.
 	return successDataBlocksCount >= dataBlocks
 }
 
 // getOrderedDisks - get ordered disks from erasure distribution.
+// returns ordered slice of disks from their actual distribution.
 func getOrderedDisks(distribution []int, disks []StorageAPI, blockCheckSums []checkSumInfo) (orderedDisks []StorageAPI, orderedBlockCheckSums []checkSumInfo) {
 	orderedDisks = make([]StorageAPI, len(disks))
 	orderedBlockCheckSums = make([]checkSumInfo, len(disks))
@@ -191,8 +198,9 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 				// NOTE: That for the offset calculation we have to use chunkSize and
 				// not curChunkSize. If we use curChunkSize for offset calculation
 				// then it can result in wrong offset for the last block.
-				var buffer = new(bytes.Buffer)
-				err := copyN(buffer, disk, volume, path, block*chunkSize, curChunkSize)
+				buffer := new(bytes.Buffer)
+				blockSize := block * chunkSize
+				err := copyN(buffer, disk, volume, path, blockSize, curChunkSize)
 				if err != nil {
 					// So that we don't read from this disk for the next block.
 					orderedDisks[index] = nil
@@ -222,6 +230,7 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 			// If we don't have DataBlocks number of data blocks we
 			// will have to read enough parity blocks such that we
 			// have DataBlocks+1 number for blocks for rs.Reconstruct().
+			// index is either dataBlocks or dataBlocks + 1.
 			for ; index < len(orderedDisks); index++ {
 				// We have enough blocks to decode, break out.
 				if isSuccessDecodeBlocks(orderedDisks, eInfo.DataBlocks) {
@@ -244,8 +253,9 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 				// NOTE: that for the offset calculation we have to use chunkSize and not
 				// curChunkSize. If we use curChunkSize for offset calculation then it
 				// can result in wrong offset for the last block.
-				var buffer = new(bytes.Buffer)
-				err := copyN(buffer, orderedDisks[index], volume, path, block*chunkSize, curChunkSize)
+				buffer := new(bytes.Buffer)
+				blockSize := block * chunkSize
+				err := copyN(buffer, orderedDisks[index], volume, path, blockSize, curChunkSize)
 				if err != nil {
 					// ERROR: Mark nil so that we don't read from
 					// this disk for the next block.

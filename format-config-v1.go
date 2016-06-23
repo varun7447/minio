@@ -347,7 +347,8 @@ func reorderDisks(bootstrapDisks []StorageAPI, formatConfigs []*formatConfigV1) 
 
 // loadFormat - loads format.json from disk.
 func loadFormat(disk StorageAPI) (format *formatConfigV1, err error) {
-	buf := make([]byte, 32*1024) // Allocate copy buffer for 32k.
+	// Allocate staging buffer of 32KiB for copyBuffer.
+	buf := make([]byte, 32*1024)
 	var buffer = new(bytes.Buffer)
 	if err = copyBuffer(buffer, disk, minioMetaBucket, formatConfigFile, buf); err != nil {
 		// 'file not found' and 'volume not found' as
