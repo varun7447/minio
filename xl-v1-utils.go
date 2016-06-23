@@ -66,8 +66,8 @@ func randInts(count int) []int {
 
 // readXLMeta reads `xl.json` returns contents as byte array.
 func readXLMeta(disk StorageAPI, bucket string, object string) (xlMeta xlMetaV1, err error) {
-	// Allocate 2MiB buffer, this is sufficient for the most of `xl.json`.
-	buf := make([]byte, 2*1024*1024)
+	// Allocate 32k buffer, this is sufficient for the most of `xl.json`.
+	buf := make([]byte, 32*1024)
 
 	// Allocate a new `xl.json` buffer writer.
 	var buffer = new(bytes.Buffer)

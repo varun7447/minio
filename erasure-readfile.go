@@ -71,6 +71,14 @@ func getOrderedDisks(distribution []int, disks []StorageAPI, blockCheckSums []ch
 	return orderedDisks, orderedBlockCheckSums
 }
 
+// Block pool maintains the default allocated pool.
+var blockPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, getEncodedBlockLen(blockSizeV1, 8))
+		return &b
+	},
+}
+
 // erasureReadFile - read bytes from erasure coded files and writes to given writer.
 // Erasure coded files are read block by block as per given erasureInfo and data chunks
 // are decoded into a data block. Data block is trimmed for given offset and length,
@@ -120,7 +128,9 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 
 	// Allocate buffer for chunk size.
 	for index := range enBlocks {
-		enBlocks[index] = make([]byte, chunkSize)
+		bufp := blockPool.Get().(*[]byte)
+		defer blockPool.Put(bufp)
+		enBlocks[index] = *bufp
 	}
 
 	// Get start and end block, also bytes to be skipped based on the input offset.

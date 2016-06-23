@@ -59,8 +59,8 @@ func (m *fsMetaV1) AddObjectPart(partNumber int, partName string, partETag strin
 
 // readFSMetadata - returns the object metadata `fs.json` content.
 func readFSMetadata(disk StorageAPI, bucket, object string) (fsMeta fsMetaV1, err error) {
-	// 1MiB staging buffer for copying `fs.json`.
-	var buf = make([]byte, 1*1024*1024)
+	// 32KiB staging buffer for copying `fs.json`.
+	var buf = make([]byte, 32*1024)
 
 	// `fs.json` writer.
 	var buffer = new(bytes.Buffer)

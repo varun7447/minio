@@ -48,8 +48,8 @@ func initFormatFS(storageDisk StorageAPI) error {
 
 // loads format.json from minioMetaBucket if it exists.
 func loadFormatFS(storageDisk StorageAPI) (format formatConfigV1, err error) {
-	// Allocate 2MiB buffer, this is sufficient for the most of `format.json`.
-	buf := make([]byte, 32*1024*1024)
+	// Allocate 32k buffer, this is sufficient for the most of `format.json`.
+	buf := make([]byte, 32*1024)
 
 	// Allocate a new `format.json` buffer writer.
 	var buffer = new(bytes.Buffer)
@@ -211,7 +211,7 @@ func (fs fsObjects) GetObject(bucket, object string, offset int64, length int64,
 		return ObjectNameInvalid{Bucket: bucket, Object: object}
 	}
 	var totalLeft = length
-	buf := make([]byte, blockSizeV1) // Allocate a new 10MiB staging buffer.
+	buf := make([]byte, 32*1024) // Allocate a 32KiB staging buffer.
 	for totalLeft > 0 {
 		// Figure out the right size for the buffer.
 		var curSize int64
@@ -301,7 +301,7 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 		}
 	} else {
 		// Allocate a buffer to Read() the object upload stream.
-		buf := make([]byte, blockSizeV1)
+		buf := make([]byte, 32*1024)
 		// Read the buffer till io.EOF and append the read data to
 		// the temporary file.
 		for {
