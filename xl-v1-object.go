@@ -92,6 +92,22 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 		eInfos = append(eInfos, metaArr[index].Erasure)
 	}
 
+	// Pick one erasure info.
+	eInfo := pickValidErasureInfo(eInfos)
+
+	// chunkSize is roughly BlockSize/DataBlocks.
+	// chunkSize is calculated such that chunkSize*DataBlocks accommodates BlockSize bytes.
+	// So chunkSize*DataBlocks can be slightly larger than BlockSize if BlockSize is not divisible by
+	// DataBlocks. The extra space will have 0-padding.
+	chunkSize := getEncodedBlockLen(eInfo.BlockSize, eInfo.DataBlocks)
+
+	// The memory allocated here is reused for every iteration in the for loop which
+	// reads blocks in erasureReadFile()
+	enBlocksReuse := make([][]byte, len(onlineDisks))
+	for i := range enBlocksReuse {
+		enBlocksReuse[i] = make([]byte, chunkSize)
+	}
+
 	totalBytesRead := int64(0)
 	// Read from all parts.
 	for ; partIndex <= lastPartIndex; partIndex++ {
@@ -108,8 +124,15 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 			readSize = length - totalBytesRead
 		}
 
+		// Gather previously calculated block checksums.
+		blockCheckSums := metaPartBlockChecksums(onlineDisks, eInfos, partName)
+
+		// []orderedDisks will have first eInfo.DataBlocks disks as data
+		// disks and rest will be parity.
+		orderedDisks, orderedBlockCheckSums := getOrderedDisks(eInfo.Distribution, onlineDisks, blockCheckSums)
+
 		// Start reading the part name.
-		n, err := erasureReadFile(writer, onlineDisks, bucket, pathJoin(object, partName), partName, eInfos, partOffset, readSize, partSize)
+		n, err := erasureReadFile(writer, orderedDisks, bucket, pathJoin(object, partName), partName, partOffset, readSize, partSize, eInfo, orderedBlockCheckSums, chunkSize, enBlocksReuse)
 		if err != nil {
 			return err
 		}

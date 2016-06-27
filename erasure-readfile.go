@@ -126,7 +126,7 @@ func getReadDisks(orderedDisks []StorageAPI, index int, dataBlocks int) (readDis
 }
 
 // parallelRead - reads chunks in parallel from the disks specified in []readDisks.
-func parallelRead(volume, path string, readDisks []StorageAPI, orderedDisks []StorageAPI, enBlocks [][]byte, blockOffset int64, curChunkSize int64, bitRotVerify func(diskIndex int) bool) {
+func parallelRead(volume, path string, readDisks []StorageAPI, disks []StorageAPI, enBlocks [][]byte, enBlocksReuse [][]byte, blockOffset int64, curChunkSize int64, bitRotVerify func(diskIndex int) bool) {
 	// WaitGroup to synchronise the read go-routines.
 	wg := &sync.WaitGroup{}
 
@@ -143,18 +143,18 @@ func parallelRead(volume, path string, readDisks []StorageAPI, orderedDisks []St
 			// Verify bit rot for the file on this disk.
 			if !bitRotVerify(index) {
 				// So that we don't read from this disk for the next block.
-				orderedDisks[index] = nil
+				disks[index] = nil
 				return
 			}
 
 			// Chunk writer.
-			chunkWriter := bytes.NewBuffer(make([]byte, 0, curChunkSize))
+			chunkWriter := bytes.NewBuffer(enBlocksReuse[index][:0])
 
 			// CopyN - copies until current chunk size.
 			err := copyN(chunkWriter, readDisks[index], volume, path, blockOffset, curChunkSize)
 			if err != nil {
 				// So that we don't read from this disk for the next block.
-				orderedDisks[index] = nil
+				disks[index] = nil
 				return
 			}
 
@@ -174,21 +174,13 @@ func parallelRead(volume, path string, readDisks []StorageAPI, orderedDisks []St
 // are decoded into a data block. Data block is trimmed for given offset and length,
 // then written to given writer. This function also supports bit-rot detection by
 // verifying checksum of individual block's checksum.
-func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path string, partName string, eInfos []erasureInfo, offset int64, length int64, totalLength int64) (int64, error) {
-	// Pick one erasure info.
-	eInfo := pickValidErasureInfo(eInfos)
-
-	// Gather previously calculated block checksums.
-	blockCheckSums := metaPartBlockChecksums(disks, eInfos, partName)
-
-	// []orderedDisks will have first eInfo.DataBlocks disks as data
-	// disks and rest will be parity.
-	orderedDisks, orderedBlockCheckSums := getOrderedDisks(eInfo.Distribution, disks, blockCheckSums)
-
+func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path string, partName string,
+	offset int64, length int64, totalLength int64, eInfo erasureInfo, checkSums []checkSumInfo,
+	chunkSize int64, enBlocksReuse [][]byte) (int64, error) {
 	// bitRotVerify verifies if the file on a particular disk doesn't have bitrot
 	// by verifying the hash of the contents of the file.
 	bitRotVerify := func() func(diskIndex int) bool {
-		verified := make([]bool, len(orderedDisks))
+		verified := make([]bool, len(disks))
 		// Return closure so that we have reference to []verified and
 		// not recalculate the hash on it every time the function is
 		// called for the same disk.
@@ -198,7 +190,7 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 				return true
 			}
 			// Is this a valid block?
-			isValid := isValidBlock(orderedDisks[diskIndex], volume, path, orderedBlockCheckSums[diskIndex])
+			isValid := isValidBlock(disks[diskIndex], volume, path, checkSums[diskIndex])
 			verified[diskIndex] = isValid
 			return isValid
 		}
@@ -211,7 +203,10 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 	// chunkSize is calculated such that chunkSize*DataBlocks accommodates BlockSize bytes.
 	// So chunkSize*DataBlocks can be slightly larger than BlockSize if BlockSize is not divisible by
 	// DataBlocks. The extra space will have 0-padding.
-	chunkSize := getEncodedBlockLen(eInfo.BlockSize, eInfo.DataBlocks)
+	// chunkSize := getEncodedBlockLen(eInfo.BlockSize, eInfo.DataBlocks)
+
+	// Used by parallelRead() and later by rs.Reconstruct(). Reuses memory allocated for enBlocksReuse.
+	enBlocks := make([][]byte, len(disks))
 
 	// Get start and end block, also bytes to be skipped based on the input offset.
 	startBlock, endBlock, bytesToSkip := getBlockInfo(offset, totalLength, eInfo.BlockSize)
@@ -221,8 +216,9 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 	// of disks. Once read, we Reconstruct() missing data if needed and write it to the given writer.
 	for block := startBlock; bytesWritten < length; block++ {
 		// Each element of enBlocks holds curChunkSize'd amount of data read from its corresponding disk.
-		enBlocks := make([][]byte, len(orderedDisks))
-
+		for i := range enBlocks {
+			enBlocks[i] = nil
+		}
 		// enBlocks data can have 0-padding hence we need to figure the exact number
 		// of bytes we want to read from enBlocks.
 		blockSize := eInfo.BlockSize
@@ -253,16 +249,18 @@ func erasureReadFile(writer io.Writer, disks []StorageAPI, volume string, path s
 			// readDisks - disks from which we need to read in parallel.
 			var readDisks []StorageAPI
 			var err error
-			readDisks, nextIndex, err = getReadDisks(orderedDisks, nextIndex, eInfo.DataBlocks)
+			readDisks, nextIndex, err = getReadDisks(disks, nextIndex, eInfo.DataBlocks)
 			if err != nil {
+				// Read quorum error.
 				return bytesWritten, err
 			}
-			parallelRead(volume, path, readDisks, orderedDisks, enBlocks, blockOffset, curChunkSize, bitRotVerify)
+			parallelRead(volume, path, readDisks, disks, enBlocks, enBlocksReuse,
+				blockOffset, curChunkSize, bitRotVerify)
 			if isSuccessDecodeBlocks(enBlocks, eInfo.DataBlocks) {
 				// If enough blocks are available to do rs.Reconstruct()
 				break
 			}
-			if nextIndex == len(orderedDisks) {
+			if nextIndex == len(disks) {
 				// No more disks to read from.
 				return bytesWritten, errXLReadQuorum
 			}
