@@ -775,6 +775,37 @@ func (s *TestSuiteFS) TestListBuckets(c *C) {
 	c.Assert(err, IsNil)
 }
 
+// This tests validate if PUT handler can successfully detect signature mismatch.
+func (s *TestSuiteFS) TestValidateSignature(c *C) {
+	// generate a random bucket name.
+	bucketName := getRandomBucketName()
+	// HTTP request to create the bucket.
+	request, err := newTestRequest("PUT", getMakeBucketURL(s.endPoint, bucketName),
+		0, nil, s.accessKey, s.secretKey)
+	c.Assert(err, IsNil)
+
+	client := http.Client{}
+	// Execute the HTTP request to create bucket.
+	response, err := client.Do(request)
+	c.Assert(err, IsNil)
+	c.Assert(response.StatusCode, Equals, http.StatusOK)
+	// make long object name.
+	longObjName := fmt.Sprintf("%05d/%05d/%05d", 1, 1, 1)
+
+	// Body is on purpose set to nil so that we get payload generated for empty bytes.
+
+	// Create new HTTP request to generate the signature error.
+	request, err = newTestRequest("PUT", getPutObjectURL(s.endPoint, bucketName, longObjName), 0, nil, s.accessKey, s.secretKey)
+	c.Assert(request.Header.Get("x-amz-content-sha256"), Equals, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+	// Set the body to generate signature mismatch.
+	request.Body = ioutil.NopCloser(bytes.NewReader([]byte("Hello, World")))
+	c.Assert(err, IsNil)
+	// execute the HTTP request.
+	response, err = client.Do(request)
+	c.Assert(err, IsNil)
+	verifyError(c, response, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided. Check your key and signing method.", http.StatusForbidden)
+}
+
 // TestNotBeAbleToCreateObjectInNonexistentBucket - Validates the error response
 // on an attempt to upload an object into a non-existent bucket.
 func (s *TestSuiteFS) TestPutObjectLongName(c *C) {
@@ -786,11 +817,11 @@ func (s *TestSuiteFS) TestPutObjectLongName(c *C) {
 	c.Assert(err, IsNil)
 
 	client := http.Client{}
-	// execute the HTTP request to create bucket.
+	// Execute the HTTP request to create bucket.
 	response, err := client.Do(request)
 	c.Assert(err, IsNil)
 	c.Assert(response.StatusCode, Equals, http.StatusOK)
-	// content for the object to be uploaded.
+	// Content for the object to be uploaded.
 	buffer := bytes.NewReader([]byte("hello world"))
 	// make long object name.
 	longObjName := fmt.Sprintf("%0255d/%0255d/%0255d", 1, 1, 1)
@@ -804,6 +835,7 @@ func (s *TestSuiteFS) TestPutObjectLongName(c *C) {
 	c.Assert(response.StatusCode, Equals, http.StatusOK)
 	// make long object name.
 	longObjName = fmt.Sprintf("%0256d", 1)
+	buffer = bytes.NewReader([]byte("hello world"))
 	request, err = newTestRequest("PUT", getPutObjectURL(s.endPoint, bucketName, longObjName),
 		int64(buffer.Len()), buffer, s.accessKey, s.secretKey)
 	c.Assert(err, IsNil)

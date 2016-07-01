@@ -51,7 +51,7 @@ func TestRenameObjectWriteQuorum(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := bytes.NewReader([]byte("hello"))
-	_, err = objLayer.PutObject("bucket1", "obj1", 5, data, nil)
+	_, err = objLayer.PutObject("bucket1", "obj1", 5, data, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,12 +103,12 @@ func TestRepeatPutObjectPart(t *testing.T) {
 	md5Writer := md5.New()
 	md5Writer.Write(fiveMBBytes)
 	md5Hex := hex.EncodeToString(md5Writer.Sum(nil))
-	_, err = objLayer.PutObjectPart("bucket1", "mpartObj1", uploadID, 1, 5*1024*1024, bytes.NewReader(fiveMBBytes), md5Hex)
+	_, err = objLayer.PutObjectPart("bucket1", "mpartObj1", uploadID, 1, 5*1024*1024, bytes.NewReader(fiveMBBytes), md5Hex, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// PutObjectPart should succeed even if part already exists. ref: https://github.com/minio/minio/issues/1930
-	_, err = objLayer.PutObjectPart("bucket1", "mpartObj1", uploadID, 1, 5*1024*1024, bytes.NewReader(fiveMBBytes), md5Hex)
+	_, err = objLayer.PutObjectPart("bucket1", "mpartObj1", uploadID, 1, 5*1024*1024, bytes.NewReader(fiveMBBytes), md5Hex, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

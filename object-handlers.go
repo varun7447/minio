@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"hash"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -28,7 +29,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	mux "github.com/gorilla/mux"
@@ -49,14 +49,6 @@ func setGetRespHeaders(w http.ResponseWriter, reqParams url.Values) {
 			w.Header()[header] = v
 		}
 	}
-}
-
-// http Header "x-amz-content-sha256" == "UNSIGNED-PAYLOAD" indicates that the
-// client did not calculate sha256 of the payload. Hence we skip calculating sha256.
-// We also skip calculating sha256 for presigned requests without "x-amz-content-sha256" header.
-func skipSHA256Calculation(r *http.Request) bool {
-	shaHeader := r.Header.Get("X-Amz-Content-Sha256")
-	return isRequestUnsignedPayload(r) || (isRequestPresignedSignatureV4(r) && shaHeader == "")
 }
 
 // errAllowableNotFound - For an anon user, return 404 if have ListBucket, 403 otherwise
@@ -422,7 +414,7 @@ func (api objectAPIHandlers) CopyObjectHandler(w http.ResponseWriter, r *http.Re
 	// same md5sum as the source.
 
 	// Create the object.
-	md5Sum, err := api.ObjectAPI.PutObject(bucket, object, size, pipeReader, metadata)
+	md5Sum, err := api.ObjectAPI.PutObject(bucket, object, size, pipeReader, metadata, nil)
 	if err != nil {
 		errorIf(err, "Unable to create an object.")
 		writeErrorResponse(w, r, toAPIErrorCode(err), r.URL.Path)
@@ -538,6 +530,46 @@ func checkCopySourceETag(w http.ResponseWriter, r *http.Request) bool {
 
 }
 
+// Signature verify function type, returns only error.
+type signVerifyFunc func() error
+
+// SignVerifyFactory - returns an instance of signature verify function, encompassing
+// all the necessary hashing and request headers. Validates and returns back proper
+// payload.
+func signVerifyFactory(hashWriter hash.Hash, r *http.Request) signVerifyFunc {
+	// Validate region as well for all payload verifications.
+	validateRegion := true
+	return func() error {
+		// Defaults to unsigned payload.
+		shaPayloadHex := unsignedPayload
+		// Hashing is enabled means payload verification is requested.
+		if hashWriter != nil {
+			shaPayloadHex = hex.EncodeToString(hashWriter.Sum(nil))
+		}
+		// Signature verification.
+		var s3Error APIErrorCode
+		if isRequestSignatureV4(r) {
+			s3Error = doesSignatureMatch(shaPayloadHex, r, validateRegion)
+		} else if isRequestPresignedSignatureV4(r) {
+			s3Error = doesPresignedSignatureMatch(shaPayloadHex, r, validateRegion)
+		} else {
+			// Couldn't figure out the request type.
+			s3Error = ErrAccessDenied
+		}
+		// Set signature error as 'errSignatureMisMatch' if possible.
+		var sErr error
+		if s3Error != ErrNone {
+			if s3Error == ErrSignatureDoesNotMatch {
+				sErr = errSignatureMismatch
+			} else {
+				sErr = fmt.Errorf("%v", getAPIError(s3Error))
+			}
+			return sErr
+		}
+		return nil
+	}
+}
+
 // PutObjectHandler - PUT Object
 // ----------
 // This implementation of the PUT operation adds an object to a bucket.
@@ -600,75 +632,22 @@ func (api objectAPIHandlers) PutObjectHandler(w http.ResponseWriter, r *http.Req
 			return
 		}
 		// Create anonymous object.
-		md5Sum, err = api.ObjectAPI.PutObject(bucket, object, size, r.Body, metadata)
+		md5Sum, err = api.ObjectAPI.PutObject(bucket, object, size, r.Body, metadata, nil)
 	case authTypePresigned, authTypeSigned:
-		validateRegion := true // Validate region.
-
-		if skipSHA256Calculation(r) {
-			// Either sha256-header is "UNSIGNED-PAYLOAD" or this is a presigned PUT
-			// request without sha256-header.
-			var s3Error APIErrorCode
-			if isRequestSignatureV4(r) {
-				s3Error = doesSignatureMatch(unsignedPayload, r, validateRegion)
-			} else if isRequestPresignedSignatureV4(r) {
-				s3Error = doesPresignedSignatureMatch(unsignedPayload, r, validateRegion)
-			}
-			if s3Error != ErrNone {
-				if s3Error == ErrSignatureDoesNotMatch {
-					err = errSignatureMismatch
-				} else {
-					err = fmt.Errorf("%v", getAPIError(s3Error))
-				}
-			} else {
-				md5Sum, err = api.ObjectAPI.PutObject(bucket, object, size, r.Body, metadata)
-			}
+		var signVerifyFn signVerifyFunc
+		var reader io.Reader
+		// Skips calculating sha256 on the payload on server,
+		// if client requested for it.
+		if skipContentSha256Cksum(r) {
+			reader = r.Body
+			signVerifyFn = signVerifyFactory(nil, r)
 		} else {
-			// Sha256 of payload has to be calculated and matched with what was sent in the header.
-			// Initialize a pipe for data pipe line.
-			reader, writer := io.Pipe()
-			var wg = &sync.WaitGroup{}
-			// Start writing in a routine.
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				shaWriter := sha256.New()
-				multiWriter := io.MultiWriter(shaWriter, writer)
-				if _, wErr := io.CopyN(multiWriter, r.Body, size); wErr != nil {
-					// Pipe closed.
-					if wErr == io.ErrClosedPipe {
-						return
-					}
-					errorIf(wErr, "Unable to read from HTTP body.")
-					writer.CloseWithError(wErr)
-					return
-				}
-				shaPayload := shaWriter.Sum(nil)
-				var s3Error APIErrorCode
-				if isRequestSignatureV4(r) {
-					s3Error = doesSignatureMatch(hex.EncodeToString(shaPayload), r, validateRegion)
-				} else if isRequestPresignedSignatureV4(r) {
-					s3Error = doesPresignedSignatureMatch(hex.EncodeToString(shaPayload), r, validateRegion)
-				}
-				var sErr error
-				if s3Error != ErrNone {
-					if s3Error == ErrSignatureDoesNotMatch {
-						sErr = errSignatureMismatch
-					} else {
-						sErr = fmt.Errorf("%v", getAPIError(s3Error))
-					}
-					writer.CloseWithError(sErr)
-					return
-				}
-				writer.Close()
-			}()
-
-			// Create object.
-			md5Sum, err = api.ObjectAPI.PutObject(bucket, object, size, reader, metadata)
-			// Close the pipe.
-			reader.Close()
-			// Wait for all the routines to finish.
-			wg.Wait()
+			shaWriter := sha256.New()
+			reader = io.TeeReader(r.Body, shaWriter)
+			signVerifyFn = signVerifyFactory(shaWriter, r)
 		}
+		// Create object.
+		md5Sum, err = api.ObjectAPI.PutObject(bucket, object, size, reader, metadata, signVerifyFn)
 	}
 	if err != nil {
 		errorIf(err, "Unable to create an object.")
@@ -779,6 +758,7 @@ func (api objectAPIHandlers) PutObjectPartHandler(w http.ResponseWriter, r *http
 	}
 
 	var partMD5 string
+	incomingMD5 := hex.EncodeToString(md5Bytes)
 	switch getRequestAuthType(r) {
 	default:
 		// For all unknown auth types return error.
@@ -792,75 +772,19 @@ func (api objectAPIHandlers) PutObjectPartHandler(w http.ResponseWriter, r *http
 		}
 		// No need to verify signature, anonymous request access is
 		// already allowed.
-		hexMD5 := hex.EncodeToString(md5Bytes)
-		partMD5, err = api.ObjectAPI.PutObjectPart(bucket, object, uploadID, partID, size, r.Body, hexMD5)
+		partMD5, err = api.ObjectAPI.PutObjectPart(bucket, object, uploadID, partID, size, r.Body, incomingMD5, nil)
 	case authTypePresigned, authTypeSigned:
-		validateRegion := true // Validate region.
-
-		if skipSHA256Calculation(r) {
-			// Either sha256-header is "UNSIGNED-PAYLOAD" or this is a presigned
-			// request without sha256-header.
-			var s3Error APIErrorCode
-			if isRequestSignatureV4(r) {
-				s3Error = doesSignatureMatch(unsignedPayload, r, validateRegion)
-			} else if isRequestPresignedSignatureV4(r) {
-				s3Error = doesPresignedSignatureMatch(unsignedPayload, r, validateRegion)
-			}
-			if s3Error != ErrNone {
-				if s3Error == ErrSignatureDoesNotMatch {
-					err = errSignatureMismatch
-				} else {
-					err = fmt.Errorf("%v", getAPIError(s3Error))
-				}
-			} else {
-				md5SumHex := hex.EncodeToString(md5Bytes)
-				partMD5, err = api.ObjectAPI.PutObjectPart(bucket, object, uploadID, partID, size, r.Body, md5SumHex)
-			}
+		var signVerifyFn signVerifyFunc
+		var reader io.Reader
+		if skipContentSha256Cksum(r) {
+			reader = r.Body
+			signVerifyFn = signVerifyFactory(nil, r)
 		} else {
-			// Initialize a pipe for data pipe line.
-			reader, writer := io.Pipe()
-			var wg = &sync.WaitGroup{}
-			// Start writing in a routine.
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				shaWriter := sha256.New()
-				multiWriter := io.MultiWriter(shaWriter, writer)
-				if _, wErr := io.CopyN(multiWriter, r.Body, size); wErr != nil {
-					// Pipe closed, just ignore it.
-					if wErr == io.ErrClosedPipe {
-						return
-					}
-					errorIf(wErr, "Unable to read from HTTP request body.")
-					writer.CloseWithError(wErr)
-					return
-				}
-				shaPayload := shaWriter.Sum(nil)
-				var s3Error APIErrorCode
-				if isRequestSignatureV4(r) {
-					s3Error = doesSignatureMatch(hex.EncodeToString(shaPayload), r, validateRegion)
-				} else if isRequestPresignedSignatureV4(r) {
-					s3Error = doesPresignedSignatureMatch(hex.EncodeToString(shaPayload), r, validateRegion)
-				}
-				if s3Error != ErrNone {
-					if s3Error == ErrSignatureDoesNotMatch {
-						err = errSignatureMismatch
-					} else {
-						err = fmt.Errorf("%v", getAPIError(s3Error))
-					}
-					writer.CloseWithError(err)
-					return
-				}
-				// Close the writer.
-				writer.Close()
-			}()
-			md5SumHex := hex.EncodeToString(md5Bytes)
-			partMD5, err = api.ObjectAPI.PutObjectPart(bucket, object, uploadID, partID, size, reader, md5SumHex)
-			// Close the pipe.
-			reader.Close()
-			// Wait for all the routines to finish.
-			wg.Wait()
+			shaWriter := sha256.New()
+			reader = io.TeeReader(r.Body, shaWriter)
+			signVerifyFn = signVerifyFactory(shaWriter, r)
 		}
+		partMD5, err = api.ObjectAPI.PutObjectPart(bucket, object, uploadID, partID, size, reader, incomingMD5, signVerifyFn)
 	}
 	if err != nil {
 		errorIf(err, "Unable to create object part.")

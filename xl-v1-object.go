@@ -281,7 +281,7 @@ func (xl xlObjects) renameObject(srcBucket, srcObject, dstBucket, dstObject stri
 // until EOF, erasure codes the data across all disk and additionally
 // writes `xl.json` which carries the necessary metadata for future
 // object operations.
-func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.Reader, metadata map[string]string) (string, error) {
+func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.Reader, metadata map[string]string, signVerify signVerifyFunc) (string, error) {
 	// Verify if bucket is valid.
 	if !IsValidBucketName(bucket) {
 		return "", BucketNameInvalid{Bucket: bucket}
@@ -376,6 +376,16 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 			if content, ok := mimedb.DB[strings.ToLower(strings.TrimPrefix(objectExt, "."))]; ok {
 				metadata["content-type"] = content.ContentType
 			}
+		}
+	}
+
+	// Validate if payload is valid.
+	if signVerify != nil {
+		if err = signVerify(); err != nil {
+			// Incoming payload wrong, delete the temporary object.
+			xl.deleteObject(minioMetaTmpBucket, tempObj)
+			// Error return.
+			return "", toObjectErr(err, bucket, object)
 		}
 	}
 

@@ -52,36 +52,36 @@ func testListObjects(obj ObjectLayer, instanceType string, t *testing.T) {
 	}
 	defer os.Remove(tmpfile.Name()) // clean up
 
-	_, err = obj.PutObject("test-bucket-list-object", "Asia-maps", int64(len("asia-maps")), bytes.NewBufferString("asia-maps"), nil)
+	_, err = obj.PutObject("test-bucket-list-object", "Asia-maps", int64(len("asia-maps")), bytes.NewBufferString("asia-maps"), nil, nil)
 	if err != nil {
 		t.Fatalf("%s : %s", instanceType, err.Error())
 	}
 
-	_, err = obj.PutObject("test-bucket-list-object", "Asia/India/India-summer-photos-1", int64(len("contentstring")), bytes.NewBufferString("contentstring"), nil)
+	_, err = obj.PutObject("test-bucket-list-object", "Asia/India/India-summer-photos-1", int64(len("contentstring")), bytes.NewBufferString("contentstring"), nil, nil)
 	if err != nil {
 		t.Fatalf("%s : %s", instanceType, err.Error())
 	}
 
-	_, err = obj.PutObject("test-bucket-list-object", "Asia/India/Karnataka/Bangalore/Koramangala/pics", int64(len("contentstring")), bytes.NewBufferString("contentstring"), nil)
+	_, err = obj.PutObject("test-bucket-list-object", "Asia/India/Karnataka/Bangalore/Koramangala/pics", int64(len("contentstring")), bytes.NewBufferString("contentstring"), nil, nil)
 	if err != nil {
 		t.Fatalf("%s : %s", instanceType, err.Error())
 	}
 
 	for i := 0; i < 2; i++ {
 		key := "newPrefix" + strconv.Itoa(i)
-		_, err = obj.PutObject("test-bucket-list-object", key, int64(len(key)), bytes.NewBufferString(key), nil)
+		_, err = obj.PutObject("test-bucket-list-object", key, int64(len(key)), bytes.NewBufferString(key), nil, nil)
 		if err != nil {
 			t.Fatalf("%s : %s", instanceType, err.Error())
 		}
 	}
-	_, err = obj.PutObject("test-bucket-list-object", "newzen/zen/recurse/again/again/again/pics", int64(len("recurse")), bytes.NewBufferString("recurse"), nil)
+	_, err = obj.PutObject("test-bucket-list-object", "newzen/zen/recurse/again/again/again/pics", int64(len("recurse")), bytes.NewBufferString("recurse"), nil, nil)
 	if err != nil {
 		t.Fatalf("%s : %s", instanceType, err.Error())
 	}
 
 	for i := 0; i < 3; i++ {
 		key := "obj" + strconv.Itoa(i)
-		_, err = obj.PutObject("test-bucket-list-object", key, int64(len(key)), bytes.NewBufferString(key), nil)
+		_, err = obj.PutObject("test-bucket-list-object", key, int64(len(key)), bytes.NewBufferString(key), nil, nil)
 		if err != nil {
 			t.Fatalf("%s : %s", instanceType, err.Error())
 		}
@@ -593,7 +593,7 @@ func BenchmarkListObjects(b *testing.B) {
 
 	for i := 0; i < 20000; i++ {
 		key := "obj" + strconv.Itoa(i)
-		_, err = obj.PutObject("ls-benchmark-bucket", key, int64(len(key)), bytes.NewBufferString(key), nil)
+		_, err = obj.PutObject("ls-benchmark-bucket", key, int64(len(key)), bytes.NewBufferString(key), nil, nil)
 		if err != nil {
 			b.Fatal(err)
 		}

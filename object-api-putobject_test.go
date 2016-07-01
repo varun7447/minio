@@ -98,7 +98,7 @@ func testObjectAPIPutObject(obj ObjectLayer, instanceType string, t *testing.T) 
 	}
 
 	for i, testCase := range failCases {
-		actualMd5Hex, actualErr := obj.PutObject(testCase.bucketName, testCase.objName, testCase.intputDataSize, bytes.NewBufferString(testCase.inputReaderData), testCase.inputMeta)
+		actualMd5Hex, actualErr := obj.PutObject(testCase.bucketName, testCase.objName, testCase.intputDataSize, bytes.NewBufferString(testCase.inputReaderData), testCase.inputMeta, nil)
 		// All are test cases above are expected to fail.
 
 		if actualErr != nil && testCase.shouldPass {
@@ -175,7 +175,7 @@ func testObjectAPIPutObjectDiskNotFOund(obj ObjectLayer, instanceType string, di
 	}
 
 	for i, testCase := range testCases {
-		actualMd5Hex, actualErr := obj.PutObject(testCase.bucketName, testCase.objName, testCase.intputDataSize, bytes.NewBufferString(testCase.inputReaderData), testCase.inputMeta)
+		actualMd5Hex, actualErr := obj.PutObject(testCase.bucketName, testCase.objName, testCase.intputDataSize, bytes.NewBufferString(testCase.inputReaderData), testCase.inputMeta, nil)
 		if actualErr != nil && testCase.shouldPass {
 			t.Errorf("Test %d: %s: Expected to pass, but failed with: <ERROR> %s.", i+1, instanceType, actualErr.Error())
 		}
@@ -223,7 +223,7 @@ func testObjectAPIPutObjectDiskNotFOund(obj ObjectLayer, instanceType string, di
 		"",
 		InsufficientWriteQuorum{},
 	}
-	_, actualErr := obj.PutObject(testCase.bucketName, testCase.objName, testCase.intputDataSize, bytes.NewBufferString(testCase.inputReaderData), testCase.inputMeta)
+	_, actualErr := obj.PutObject(testCase.bucketName, testCase.objName, testCase.intputDataSize, bytes.NewBufferString(testCase.inputReaderData), testCase.inputMeta, nil)
 	if actualErr != nil && testCase.shouldPass {
 		t.Errorf("Test %d: %s: Expected to pass, but failed with: <ERROR> %s.", len(testCases)+1, instanceType, actualErr.Error())
 	}
@@ -255,7 +255,7 @@ func testObjectAPIPutObjectStaleFiles(obj ObjectLayer, instanceType string, disk
 
 	data := []byte("hello, world")
 	// Create object.
-	_, err = obj.PutObject(bucket, object, int64(len(data)), bytes.NewReader(data), nil)
+	_, err = obj.PutObject(bucket, object, int64(len(data)), bytes.NewReader(data), nil, nil)
 	if err != nil {
 		// Failed to create object, abort.
 		t.Fatalf("%s : %s", instanceType, err.Error())
@@ -299,7 +299,7 @@ func testObjectAPIMultipartPutObjectStaleFiles(obj ObjectLayer, instanceType str
 	md5Writer := md5.New()
 	md5Writer.Write(fiveMBBytes)
 	etag1 := hex.EncodeToString(md5Writer.Sum(nil))
-	_, err = obj.PutObjectPart(bucket, object, uploadID, 1, int64(len(fiveMBBytes)), bytes.NewReader(fiveMBBytes), etag1)
+	_, err = obj.PutObjectPart(bucket, object, uploadID, 1, int64(len(fiveMBBytes)), bytes.NewReader(fiveMBBytes), etag1, nil)
 	if err != nil {
 		// Failed to upload object part, abort.
 		t.Fatalf("%s : %s", instanceType, err.Error())
@@ -310,7 +310,7 @@ func testObjectAPIMultipartPutObjectStaleFiles(obj ObjectLayer, instanceType str
 	md5Writer = md5.New()
 	md5Writer.Write(data)
 	etag2 := hex.EncodeToString(md5Writer.Sum(nil))
-	_, err = obj.PutObjectPart(bucket, object, uploadID, 2, int64(len(data)), bytes.NewReader(data), etag2)
+	_, err = obj.PutObjectPart(bucket, object, uploadID, 2, int64(len(data)), bytes.NewReader(data), etag2, nil)
 	if err != nil {
 		// Failed to upload object part, abort.
 		t.Fatalf("%s : %s", instanceType, err.Error())

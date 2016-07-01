@@ -278,7 +278,7 @@ func (fs fsObjects) GetObjectInfo(bucket, object string) (ObjectInfo, error) {
 }
 
 // PutObject - create an object.
-func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.Reader, metadata map[string]string) (string, error) {
+func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.Reader, metadata map[string]string, signVerify signVerifyFunc) (string, error) {
 	// Verify if bucket is valid.
 	if !IsValidBucketName(bucket) {
 		return "", BucketNameInvalid{Bucket: bucket}
@@ -318,8 +318,8 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 			}
 			if n > 0 {
 				// Update md5 writer.
-				md5Writer.Write(buf[:n])
-				wErr := fs.storage.AppendFile(minioMetaBucket, tempObj, buf[:n])
+				md5Writer.Write(buf[0:n])
+				wErr := fs.storage.AppendFile(minioMetaBucket, tempObj, buf[0:n])
 				if wErr != nil {
 					return "", toObjectErr(wErr, bucket, object)
 				}
@@ -327,6 +327,16 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 			if rErr == io.EOF {
 				break
 			}
+		}
+	}
+
+	// Validate if payload is valid.
+	if signVerify != nil {
+		if err := signVerify(); err != nil {
+			// Incoming payload wrong, delete the temporary object.
+			fs.storage.DeleteFile(minioMetaBucket, tempObj)
+			// Error return.
+			return "", toObjectErr(err, bucket, object)
 		}
 	}
 
@@ -338,6 +348,9 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 	}
 	if md5Hex != "" {
 		if newMD5Hex != md5Hex {
+			// MD5 mismatch, delete the temporary object.
+			fs.storage.DeleteFile(minioMetaBucket, tempObj)
+			// Returns md5 mismatch.
 			return "", BadDigest{md5Hex, newMD5Hex}
 		}
 	}

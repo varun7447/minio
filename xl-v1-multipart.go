@@ -301,10 +301,23 @@ func (xl xlObjects) NewMultipartUpload(bucket, object string, meta map[string]st
 	return xl.newMultipartUpload(bucket, object, meta)
 }
 
-// putObjectPart - reads incoming data until EOF for the part file on
-// an ongoing multipart transaction. Internally incoming data is
-// erasure coded and written across all disks.
-func (xl xlObjects) putObjectPart(bucket string, object string, uploadID string, partID int, size int64, data io.Reader, md5Hex string) (string, error) {
+// PutObjectPart - reads incoming stream and internally erasure codes
+// them. This call is similar to single put operation but it is part
+// of the multipart transcation.
+//
+// Implements S3 compatible Upload Part API.
+func (xl xlObjects) PutObjectPart(bucket, object, uploadID string, partID int, size int64, data io.Reader, md5Hex string, signVerify signVerifyFunc) (string, error) {
+	// Verify if bucket is valid.
+	if !IsValidBucketName(bucket) {
+		return "", BucketNameInvalid{Bucket: bucket}
+	}
+	// Verify whether the bucket exists.
+	if !xl.isBucketExist(bucket) {
+		return "", BucketNotFound{Bucket: bucket}
+	}
+	if !IsValidObjectName(object) {
+		return "", ObjectNameInvalid{Bucket: bucket, Object: object}
+	}
 	// Hold the lock and start the operation.
 	uploadIDPath := pathJoin(mpartMetaPrefix, bucket, object, uploadID)
 	nsMutex.Lock(minioMetaBucket, uploadIDPath)
@@ -368,6 +381,15 @@ func (xl xlObjects) putObjectPart(bucket string, object string, uploadID string,
 		size = sizeWritten
 	}
 
+	if signVerify != nil {
+		if err = signVerify(); err != nil {
+			// Incoming payload wrong, delete the temporary object.
+			xl.deleteObject(minioMetaBucket, tmpPartPath)
+			// Returns md5 mismatch.
+			return "", toObjectErr(err, bucket, object)
+		}
+	}
+
 	// Calculate new md5sum.
 	newMD5Hex := hex.EncodeToString(md5Writer.Sum(nil))
 	if md5Hex != "" {
@@ -419,26 +441,6 @@ func (xl xlObjects) putObjectPart(bucket string, object string, uploadID string,
 
 	// Return success.
 	return newMD5Hex, nil
-}
-
-// PutObjectPart - reads incoming stream and internally erasure codes
-// them. This call is similar to single put operation but it is part
-// of the multipart transcation.
-//
-// Implements S3 compatible Upload Part API.
-func (xl xlObjects) PutObjectPart(bucket, object, uploadID string, partID int, size int64, data io.Reader, md5Hex string) (string, error) {
-	// Verify if bucket is valid.
-	if !IsValidBucketName(bucket) {
-		return "", BucketNameInvalid{Bucket: bucket}
-	}
-	// Verify whether the bucket exists.
-	if !xl.isBucketExist(bucket) {
-		return "", BucketNotFound{Bucket: bucket}
-	}
-	if !IsValidObjectName(object) {
-		return "", ObjectNameInvalid{Bucket: bucket, Object: object}
-	}
-	return xl.putObjectPart(bucket, object, uploadID, partID, size, data, md5Hex)
 }
 
 // listObjectParts - wrapper reading `xl.json` for a given object and

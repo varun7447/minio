@@ -33,7 +33,7 @@ func testGetObjectInfo(obj ObjectLayer, instanceType string, t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s : %s", instanceType, err.Error())
 	}
-	_, err = obj.PutObject("test-getobjectinfo", "Asia/asiapics.jpg", int64(len("asiapics")), bytes.NewBufferString("asiapics"), nil)
+	_, err = obj.PutObject("test-getobjectinfo", "Asia/asiapics.jpg", int64(len("asiapics")), bytes.NewBufferString("asiapics"), nil, nil)
 	if err != nil {
 		t.Fatalf("%s : %s", instanceType, err.Error())
 	}

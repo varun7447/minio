@@ -53,7 +53,7 @@ func createObjNamespace(obj ObjectLayer, bucket string, objects []string) error 
 	// Create objects.
 	for _, object := range objects {
 		_, err = obj.PutObject(bucket, object, int64(len("hello")),
-			bytes.NewReader([]byte("hello")), nil)
+			bytes.NewReader([]byte("hello")), nil, nil)
 		if err != nil {
 			return err
 		}

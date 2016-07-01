@@ -517,7 +517,7 @@ func (api objectAPIHandlers) PostPolicyBucketHandler(w http.ResponseWriter, r *h
 	metadata := make(map[string]string)
 	// Nothing to store right now.
 
-	md5Sum, err := api.ObjectAPI.PutObject(bucket, object, -1, fileBody, metadata)
+	md5Sum, err := api.ObjectAPI.PutObject(bucket, object, -1, fileBody, metadata, nil)
 	if err != nil {
 		errorIf(err, "Unable to create object.")
 		writeErrorResponse(w, r, toAPIErrorCode(err), r.URL.Path)

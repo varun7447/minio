@@ -55,7 +55,7 @@ func runPutObjectBenchmark(b *testing.B, obj ObjectLayer, objSize int) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// insert the object.
-		md5Sum, err = obj.PutObject(bucket, "object"+strconv.Itoa(i), int64(len(textData)), bytes.NewBuffer(textData), metadata)
+		md5Sum, err = obj.PutObject(bucket, "object"+strconv.Itoa(i), int64(len(textData)), bytes.NewBuffer(textData), metadata, nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -114,7 +114,7 @@ func runGetObjectBenchmark(b *testing.B, obj ObjectLayer, objSize int) {
 		metadata := make(map[string]string)
 		metadata["md5Sum"] = hex.EncodeToString(hasher.Sum(nil))
 		// insert the object.
-		md5Sum, err = obj.PutObject(bucket, "object"+strconv.Itoa(i), int64(len(textData)), bytes.NewBuffer(textData), metadata)
+		md5Sum, err = obj.PutObject(bucket, "object"+strconv.Itoa(i), int64(len(textData)), bytes.NewBuffer(textData), metadata, nil)
 		if err != nil {
 			b.Fatal(err)
 		}

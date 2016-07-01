@@ -267,7 +267,7 @@ func (fs fsObjects) NewMultipartUpload(bucket, object string, meta map[string]st
 // an ongoing multipart transaction. Internally incoming data is
 // written to '.minio/tmp' location and safely renamed to
 // '.minio/multipart' for reach parts.
-func (fs fsObjects) PutObjectPart(bucket, object, uploadID string, partID int, size int64, data io.Reader, md5Hex string) (string, error) {
+func (fs fsObjects) PutObjectPart(bucket, object, uploadID string, partID int, size int64, data io.Reader, md5Hex string, signVerify signVerifyFunc) (string, error) {
 	// Verify if bucket is valid.
 	if !IsValidBucketName(bucket) {
 		return "", BucketNameInvalid{Bucket: bucket}
@@ -317,9 +317,22 @@ func (fs fsObjects) PutObjectPart(bucket, object, uploadID string, partID int, s
 		}
 	}
 
+	// Validate if payload is valid.
+	if signVerify != nil {
+		if err := signVerify(); err != nil {
+			// Incoming payload wrong, delete the temporary object.
+			fs.storage.DeleteFile(minioMetaBucket, tmpPartPath)
+			// Error return.
+			return "", toObjectErr(err, bucket, object)
+		}
+	}
+
 	newMD5Hex := hex.EncodeToString(md5Writer.Sum(nil))
 	if md5Hex != "" {
 		if newMD5Hex != md5Hex {
+			// MD5 mismatch, delete the temporary object.
+			fs.storage.DeleteFile(minioMetaBucket, tmpPartPath)
+			// Returns md5 mismatch.
 			return "", BadDigest{md5Hex, newMD5Hex}
 		}
 	}

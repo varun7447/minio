@@ -115,7 +115,7 @@ func testMultipartObjectCreation(c *check.C, obj ObjectLayer) {
 		expectedMD5Sumhex := hex.EncodeToString(hasher.Sum(nil))
 
 		var calculatedMD5sum string
-		calculatedMD5sum, err = obj.PutObjectPart("bucket", "key", uploadID, i, int64(len(data)), bytes.NewBuffer(data), expectedMD5Sumhex)
+		calculatedMD5sum, err = obj.PutObjectPart("bucket", "key", uploadID, i, int64(len(data)), bytes.NewBuffer(data), expectedMD5Sumhex, nil)
 		c.Assert(err, check.IsNil)
 		c.Assert(calculatedMD5sum, check.Equals, expectedMD5Sumhex)
 		completedParts.Parts = append(completedParts.Parts, completePart{PartNumber: i, ETag: calculatedMD5sum})
@@ -147,7 +147,7 @@ func testMultipartObjectAbort(c *check.C, obj ObjectLayer) {
 
 		metadata["md5"] = expectedMD5Sumhex
 		var calculatedMD5sum string
-		calculatedMD5sum, err = obj.PutObjectPart("bucket", "key", uploadID, i, int64(len(randomString)), bytes.NewBufferString(randomString), expectedMD5Sumhex)
+		calculatedMD5sum, err = obj.PutObjectPart("bucket", "key", uploadID, i, int64(len(randomString)), bytes.NewBufferString(randomString), expectedMD5Sumhex, nil)
 		c.Assert(err, check.IsNil)
 		c.Assert(calculatedMD5sum, check.Equals, expectedMD5Sumhex)
 		parts[i] = expectedMD5Sumhex
@@ -177,7 +177,7 @@ func testMultipleObjectCreation(c *check.C, obj ObjectLayer) {
 		metadata := make(map[string]string)
 		metadata["md5Sum"] = expectedMD5Sumhex
 		var md5Sum string
-		md5Sum, err = obj.PutObject("bucket", key, int64(len(randomString)), bytes.NewBufferString(randomString), metadata)
+		md5Sum, err = obj.PutObject("bucket", key, int64(len(randomString)), bytes.NewBufferString(randomString), metadata, nil)
 		c.Assert(err, check.IsNil)
 		c.Assert(md5Sum, check.Equals, expectedMD5Sumhex)
 	}
@@ -204,7 +204,7 @@ func testPaging(c *check.C, obj ObjectLayer) {
 	// check before paging occurs.
 	for i := 0; i < 5; i++ {
 		key := "obj" + strconv.Itoa(i)
-		_, err = obj.PutObject("bucket", key, int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+		_, err = obj.PutObject("bucket", key, int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 		c.Assert(err, check.IsNil)
 
 		result, err = obj.ListObjects("bucket", "", "", "", 5)
@@ -215,7 +215,7 @@ func testPaging(c *check.C, obj ObjectLayer) {
 	// check after paging occurs pages work.
 	for i := 6; i <= 10; i++ {
 		key := "obj" + strconv.Itoa(i)
-		_, err = obj.PutObject("bucket", key, int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+		_, err = obj.PutObject("bucket", key, int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 		c.Assert(err, check.IsNil)
 		result, err = obj.ListObjects("bucket", "obj", "", "", 5)
 		c.Assert(err, check.IsNil)
@@ -224,9 +224,9 @@ func testPaging(c *check.C, obj ObjectLayer) {
 	}
 	// check paging with prefix at end returns less objects.
 	{
-		_, err = obj.PutObject("bucket", "newPrefix", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+		_, err = obj.PutObject("bucket", "newPrefix", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 		c.Assert(err, check.IsNil)
-		_, err = obj.PutObject("bucket", "newPrefix2", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+		_, err = obj.PutObject("bucket", "newPrefix2", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 		c.Assert(err, check.IsNil)
 		result, err = obj.ListObjects("bucket", "new", "", "", 5)
 		c.Assert(err, check.IsNil)
@@ -246,9 +246,9 @@ func testPaging(c *check.C, obj ObjectLayer) {
 
 	// check delimited results with delimiter and prefix.
 	{
-		_, err = obj.PutObject("bucket", "this/is/delimited", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+		_, err = obj.PutObject("bucket", "this/is/delimited", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 		c.Assert(err, check.IsNil)
-		_, err = obj.PutObject("bucket", "this/is/also/a/delimited/file", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+		_, err = obj.PutObject("bucket", "this/is/also/a/delimited/file", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 		c.Assert(err, check.IsNil)
 		result, err = obj.ListObjects("bucket", "this/is/", "", "/", 10)
 		c.Assert(err, check.IsNil)
@@ -302,11 +302,11 @@ func testObjectOverwriteWorks(c *check.C, obj ObjectLayer) {
 	err := obj.MakeBucket("bucket")
 	c.Assert(err, check.IsNil)
 
-	_, err = obj.PutObject("bucket", "object", int64(len("The list of parts was not in ascending order. The parts list must be specified in order by part number.")), bytes.NewBufferString("The list of parts was not in ascending order. The parts list must be specified in order by part number."), nil)
+	_, err = obj.PutObject("bucket", "object", int64(len("The list of parts was not in ascending order. The parts list must be specified in order by part number.")), bytes.NewBufferString("The list of parts was not in ascending order. The parts list must be specified in order by part number."), nil, nil)
 	c.Assert(err, check.IsNil)
 
 	length := int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."))
-	_, err = obj.PutObject("bucket", "object", length, bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+	_, err = obj.PutObject("bucket", "object", length, bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 	c.Assert(err, check.IsNil)
 
 	var bytesBuffer bytes.Buffer
@@ -317,7 +317,7 @@ func testObjectOverwriteWorks(c *check.C, obj ObjectLayer) {
 
 // Tests validate that bucket operation on non-existent bucket fails.
 func testNonExistantBucketOperations(c *check.C, obj ObjectLayer) {
-	_, err := obj.PutObject("bucket1", "object", int64(len("one")), bytes.NewBufferString("one"), nil)
+	_, err := obj.PutObject("bucket1", "object", int64(len("one")), bytes.NewBufferString("one"), nil, nil)
 	c.Assert(err, check.Not(check.IsNil))
 	c.Assert(err.Error(), check.Equals, "Bucket not found: bucket1")
 }
@@ -341,14 +341,14 @@ func testPutObject(c *check.C, obj ObjectLayer) {
 	c.Assert(err, check.IsNil)
 
 	var bytesBuffer1 bytes.Buffer
-	_, err = obj.PutObject("bucket", "object", length, readerEOF, nil)
+	_, err = obj.PutObject("bucket", "object", length, readerEOF, nil, nil)
 	c.Assert(err, check.IsNil)
 	err = obj.GetObject("bucket", "object", 0, length, &bytesBuffer1)
 	c.Assert(err, check.IsNil)
 	c.Assert(len(bytesBuffer1.Bytes()), check.Equals, len(content))
 
 	var bytesBuffer2 bytes.Buffer
-	_, err = obj.PutObject("bucket", "object", length, readerNoEOF, nil)
+	_, err = obj.PutObject("bucket", "object", length, readerNoEOF, nil, nil)
 	c.Assert(err, check.IsNil)
 	err = obj.GetObject("bucket", "object", 0, length, &bytesBuffer2)
 	c.Assert(err, check.IsNil)
@@ -361,7 +361,7 @@ func testPutObjectInSubdir(c *check.C, obj ObjectLayer) {
 	c.Assert(err, check.IsNil)
 
 	length := int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."))
-	_, err = obj.PutObject("bucket", "dir1/dir2/object", length, bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+	_, err = obj.PutObject("bucket", "dir1/dir2/object", length, bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 	c.Assert(err, check.IsNil)
 
 	var bytesBuffer bytes.Buffer
@@ -446,7 +446,7 @@ func testGetDirectoryReturnsObjectNotFound(c *check.C, obj ObjectLayer) {
 	err := obj.MakeBucket("bucket")
 	c.Assert(err, check.IsNil)
 
-	_, err = obj.PutObject("bucket", "dir1/dir3/object", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("One or more of the specified parts could not be found. The part might not have been uploaded, or the specified entity tag might not have matched the part's entity tag."), nil)
+	_, err = obj.PutObject("bucket", "dir1/dir3/object", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("One or more of the specified parts could not be found. The part might not have been uploaded, or the specified entity tag might not have matched the part's entity tag."), nil, nil)
 	c.Assert(err, check.IsNil)
 
 	_, err = obj.GetObjectInfo("bucket", "dir1")
@@ -476,7 +476,7 @@ func testContentType(c *check.C, obj ObjectLayer) {
 	c.Assert(err, check.IsNil)
 
 	// Test empty.
-	_, err = obj.PutObject("bucket", "minio.png", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil)
+	_, err = obj.PutObject("bucket", "minio.png", int64(len("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed.")), bytes.NewBufferString("The specified multipart upload does not exist. The upload ID might be invalid, or the multipart upload might have been aborted or completed."), nil, nil)
 	c.Assert(err, check.IsNil)
 	objInfo, err := obj.GetObjectInfo("bucket", "minio.png")
 	c.Assert(err, check.IsNil)
