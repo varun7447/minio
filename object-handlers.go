@@ -545,6 +545,10 @@ func signVerifyFactory(hashWriter hash.Hash, r *http.Request) signVerifyFunc {
 		// Hashing is enabled means payload verification is requested.
 		if hashWriter != nil {
 			shaPayloadHex = hex.EncodeToString(hashWriter.Sum(nil))
+			shaHeader := r.Header.Get("x-amz-content-sha256")
+			if shaHeader != shaPayloadHex {
+				return errContentSHA256Mismatch
+			}
 		}
 		// Signature verification.
 		var s3Error APIErrorCode

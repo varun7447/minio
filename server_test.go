@@ -789,13 +789,42 @@ func (s *TestSuiteFS) TestValidateSignature(c *C) {
 	response, err := client.Do(request)
 	c.Assert(err, IsNil)
 	c.Assert(response.StatusCode, Equals, http.StatusOK)
-	// make long object name.
-	longObjName := fmt.Sprintf("%05d/%05d/%05d", 1, 1, 1)
+
+	objName := "test-object"
 
 	// Body is on purpose set to nil so that we get payload generated for empty bytes.
 
-	// Create new HTTP request to generate the signature error.
-	request, err = newTestRequest("PUT", getPutObjectURL(s.endPoint, bucketName, longObjName), 0, nil, s.accessKey, s.secretKey)
+	// Create new HTTP request with incorrect secretKey to generate an incorrect signature.
+	secretKey := s.secretKey + "a"
+	request, err = newTestRequest("PUT", getPutObjectURL(s.endPoint, bucketName, objName), 0, nil, s.accessKey, secretKey)
+	c.Assert(err, IsNil)
+	response, err = client.Do(request)
+	c.Assert(err, IsNil)
+	verifyError(c, response, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided. Check your key and signing method.", http.StatusForbidden)
+}
+
+// This tests validate if PUT handler can successfully detect SHA256 mismatch.
+func (s *TestSuiteFS) TestSHA256Mismatch(c *C) {
+	// generate a random bucket name.
+	bucketName := getRandomBucketName()
+	// HTTP request to create the bucket.
+	request, err := newTestRequest("PUT", getMakeBucketURL(s.endPoint, bucketName),
+		0, nil, s.accessKey, s.secretKey)
+	c.Assert(err, IsNil)
+
+	client := http.Client{}
+	// Execute the HTTP request to create bucket.
+	response, err := client.Do(request)
+	c.Assert(err, IsNil)
+	c.Assert(response.StatusCode, Equals, http.StatusOK)
+
+	objName := "test-object"
+
+	// Body is on purpose set to nil so that we get payload generated for empty bytes.
+
+	// Create new HTTP request with incorrect secretKey to generate an incorrect signature.
+	secretKey := s.secretKey + "a"
+	request, err = newTestRequest("PUT", getPutObjectURL(s.endPoint, bucketName, objName), 0, nil, s.accessKey, secretKey)
 	c.Assert(request.Header.Get("x-amz-content-sha256"), Equals, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 	// Set the body to generate signature mismatch.
 	request.Body = ioutil.NopCloser(bytes.NewReader([]byte("Hello, World")))
@@ -803,7 +832,7 @@ func (s *TestSuiteFS) TestValidateSignature(c *C) {
 	// execute the HTTP request.
 	response, err = client.Do(request)
 	c.Assert(err, IsNil)
-	verifyError(c, response, "SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided. Check your key and signing method.", http.StatusForbidden)
+	verifyError(c, response, "XAmzContentSHA256Mismatch", "The provided 'x-amz-content-sha256' header does not match what was computed.", http.StatusBadRequest)
 }
 
 // TestNotBeAbleToCreateObjectInNonexistentBucket - Validates the error response
