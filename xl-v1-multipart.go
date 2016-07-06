@@ -749,6 +749,8 @@ func (xl xlObjects) CompleteMultipartUpload(bucket string, object string, upload
 		return "", toObjectErr(err, minioMetaBucket, path.Join(mpartMetaPrefix, bucket, object))
 	}
 
+	// FIXME: add caching support.
+
 	// Return md5sum.
 	return s3MD5, nil
 }

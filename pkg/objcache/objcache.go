@@ -29,6 +29,13 @@ import (
 // NoExpiration represents caches to be permanent and can only be deleted.
 var NoExpiration = time.Duration(0)
 
+// buffer represents the in memory cache of a single entry.
+// buffer carries value of the data and last modified time.
+type buffer struct {
+	value        []byte
+	lastModified time.Time
+}
+
 // Cache holds the required variables to compose an in memory cache system
 // which also provides expiring key mechanism and also maxSize.
 type Cache struct {
@@ -43,13 +50,13 @@ type Cache struct {
 	currentSize uint64
 
 	// OnEviction - callback function for eviction
-	OnEviction func(a ...interface{})
+	OnEviction func(key string)
 
 	// totalEvicted counter to keep track of total expirations
 	totalEvicted int
 
 	// map of objectName and its contents
-	entries map[string][]byte
+	entries map[string]buffer
 
 	// Expiration in time duration.
 	expiry time.Duration
@@ -63,7 +70,7 @@ func New(maxSize uint64, expiry time.Duration) *Cache {
 	return &Cache{
 		mutex:   &sync.RWMutex{},
 		maxSize: maxSize,
-		entries: make(map[string][]byte),
+		entries: make(map[string]buffer),
 		expiry:  expiry,
 	}
 }
@@ -77,14 +84,13 @@ var ErrCacheFull = errors.New("Not enough space in cache")
 // Used for adding entry to the object cache. Implements io.WriteCloser
 type cacheBuffer struct {
 	*bytes.Buffer // Implements io.Writer
-	onClose       func()
+	onClose       func() error
 }
 
 // On close, onClose() is called which checks if all object contents
 // have been written so that it can save the buffer to the cache.
-func (c cacheBuffer) Close() error {
-	c.onClose()
-	return nil
+func (c cacheBuffer) Close() (err error) {
+	return c.onClose()
 }
 
 // Create - validates if object size fits with in cache size limit and returns a io.WriteCloser
@@ -109,22 +115,24 @@ func (c *Cache) Create(key string, size int64) (w io.WriteCloser, err error) {
 
 	// Will hold the object contents.
 	buf := bytes.NewBuffer(make([]byte, 0, size))
-	// Account for the memory allocated above.
-	c.currentSize += uint64(size)
 
 	// Function called on close which saves the object contents
 	// to the object cache.
-	onClose := func() {
+	onClose := func() error {
 		c.mutex.Lock()
 		defer c.mutex.Unlock()
 		if buf.Len() != int(size) {
 			// Full object not available hence do not save buf to object cache.
-			c.currentSize -= uint64(size)
-			return
+			return io.ErrShortBuffer
 		}
 		// Full object available in buf, save it to cache.
-		c.entries[key] = buf.Bytes()
-		return
+		c.entries[key] = buffer{
+			value:        buf.Bytes(),
+			lastModified: time.Now().UTC(), // Add last modified time as well.
+		}
+		// Account for the memory allocated above.
+		c.currentSize += uint64(size)
+		return nil
 	}
 
 	// Object contents that is written - cacheBuffer.Write(data)
@@ -142,11 +150,11 @@ func (c *Cache) Open(key string) (io.ReadSeeker, error) {
 	defer c.mutex.RUnlock()
 
 	// Entry exists, return the readable buffer.
-	buffer, ok := c.entries[key]
+	buf, ok := c.entries[key]
 	if !ok {
 		return nil, ErrKeyNotFoundInCache
 	}
-	return bytes.NewReader(buffer), nil
+	return bytes.NewReader(buf.value), nil
 }
 
 // Delete - delete deletes an entry from in-memory fs.
@@ -155,14 +163,14 @@ func (c *Cache) Delete(key string) {
 	defer c.mutex.Unlock()
 
 	// Delete an entry.
-	buffer, ok := c.entries[key]
+	buf, ok := c.entries[key]
 	if ok {
-		c.deleteEntry(key, int64(len(buffer)))
+		c.deleteEntry(key, len(buf.value))
 	}
 }
 
 // Deletes the entry that was found.
-func (c *Cache) deleteEntry(key string, size int64) {
+func (c *Cache) deleteEntry(key string, size int) {
 	delete(c.entries, key)
 	c.currentSize -= uint64(size)
 	c.totalEvicted++

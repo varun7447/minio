@@ -130,9 +130,10 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 				mw = io.MultiWriter(newBuffer, writer)
 				defer newBuffer.Close()
 			}
+			// Ignore error if cache is full, proceed to write the object.
 			if err != nil && err != objcache.ErrCacheFull {
-				// Perhaps cache is full, returns here.
-				return err
+				// For any other error return here.
+				return toObjectErr(err, bucket, object)
 			}
 		}
 	}
@@ -156,7 +157,7 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 		// Start reading the part name.
 		n, err := erasureReadFile(mw, onlineDisks, bucket, pathJoin(object, partName), partName, eInfos, partOffset, readSize, partSize)
 		if err != nil {
-			return err
+			return toObjectErr(err, bucket, object)
 		}
 
 		totalBytesRead += n
@@ -377,6 +378,28 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 	// Initialize md5 writer.
 	md5Writer := md5.New()
 
+	// Initialize a new multi writer.
+	var mw io.Writer
+	mw = md5Writer
+
+	// Proceed to set the cache.
+	var newBuffer io.WriteCloser
+
+	// Save uploaded object into cache if enabled and size is > 0.
+	if size > 0 && xl.objCacheEnabled {
+		// Create a new entry in memory of length.
+		newBuffer, err = xl.objCache.Create(path.Join(bucket, object), size)
+		if err == nil {
+			// Create a multi writer to write to both memory and client response.
+			mw = io.MultiWriter(newBuffer, md5Writer)
+		}
+		// Ignore error if cache is full, proceed to write the object.
+		if err != nil && err != objcache.ErrCacheFull {
+			// For any other error return here.
+			return "", toObjectErr(err, bucket, object)
+		}
+	}
+
 	// Limit the reader to its provided size if specified.
 	var limitDataReader io.Reader
 	if size > 0 {
@@ -389,7 +412,7 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 	}
 
 	// Tee reader combines incoming data stream and md5, data read from input stream is written to md5.
-	teeReader := io.TeeReader(limitDataReader, md5Writer)
+	teeReader := io.TeeReader(limitDataReader, mw)
 
 	// Collect all the previous erasure infos across the disk.
 	var eInfos []erasureInfo
@@ -432,6 +455,7 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 		if vErr := data.(*signVerifyReader).Verify(); vErr != nil {
 			// Incoming payload wrong, delete the temporary object.
 			xl.deleteObject(minioMetaTmpBucket, tempObj)
+
 			// Error return.
 			return "", toObjectErr(vErr, bucket, object)
 		}
@@ -490,6 +514,11 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 
 	// Delete the temporary object.
 	xl.deleteObject(minioMetaTmpBucket, newUniqueID)
+
+	// Save to cache when we have sucessfully wrote to disk.
+	if size > 0 && xl.objCacheEnabled {
+		newBuffer.Close()
+	}
 
 	// Return md5sum, successfully wrote object.
 	return newMD5Hex, nil
