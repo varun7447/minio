@@ -323,11 +323,109 @@ func (xl xlObjects) renameObject(srcBucket, srcObject, dstBucket, dstObject stri
 	return xl.rename(srcBucket, srcObject, dstBucket, dstObject, isPart)
 }
 
+// fillCache fills the cache by reading data from the disk.
+func (xl xlObjects) fillCache(bucket, object string) error {
+	nsMutex.RLock(bucket, object)
+	defer nsMutex.RUnlock(bucket, object)
+
+	// Object cache not enabled this function is a no op
+	if !xl.objCacheEnabled {
+		return nil
+	}
+
+	// Read metadata associated with the object from all disks.
+	metaArr, errs := xl.readAllXLMetadata(bucket, object)
+	// Do we have read quorum?
+	if !isQuorum(errs, xl.readQuorum) {
+		return toObjectErr(errXLReadQuorum, bucket, object)
+	}
+
+	// List all online disks.
+	onlineDisks, highestVersion, err := xl.listOnlineDisks(metaArr, errs)
+	if err != nil {
+		return toObjectErr(err, bucket, object)
+	}
+
+	// Pick latest valid metadata.
+	var xlMeta xlMetaV1
+	for _, meta := range metaArr {
+		if meta.IsValid() && meta.Stat.Version == highestVersion {
+			xlMeta = meta
+			break
+		}
+	}
+
+	// If size is of length 0, do not cache.
+	if xlMeta.Stat.Size == 0 {
+		return nil
+	}
+
+	// Get start part index and offset.
+	partIndex, partOffset, err := xlMeta.ObjectToPartOffset(0)
+	if err != nil {
+		return toObjectErr(err, bucket, object)
+	}
+
+	// Get last part index to read given length.
+	lastPartIndex, _, err := xlMeta.ObjectToPartOffset(xlMeta.Stat.Size - 1)
+	if err != nil {
+		return toObjectErr(err, bucket, object)
+	}
+
+	// Collect all the previous erasure infos across the disk.
+	var eInfos []erasureInfo
+	for index := range onlineDisks {
+		eInfos = append(eInfos, metaArr[index].Erasure)
+	}
+
+	// Proceed to set the cache.
+	// Create a new entry in memory of length.
+	newBuffer, err := xl.objCache.Create(path.Join(bucket, object), xlMeta.Stat.Size)
+	// Ignore error if cache is full, proceed to write the object.
+	if err != nil && err != objcache.ErrCacheFull {
+		// For any other error return here.
+		return toObjectErr(err, bucket, object)
+	}
+	defer newBuffer.Close()
+
+	totalBytesRead := int64(0)
+	// Read from all parts.
+	for ; partIndex <= lastPartIndex; partIndex++ {
+		if xlMeta.Stat.Size == totalBytesRead {
+			break
+		}
+		// Save the current part name and size.
+		partName := xlMeta.Parts[partIndex].Name
+		partSize := xlMeta.Parts[partIndex].Size
+
+		readSize := partSize - partOffset
+		// readSize should be adjusted so that we don't write more data than what was requested.
+		if readSize > (xlMeta.Stat.Size - totalBytesRead) {
+			readSize = xlMeta.Stat.Size - totalBytesRead
+		}
+
+		// Start reading the part name.
+		n, err := erasureReadFile(newBuffer, onlineDisks, bucket, pathJoin(object, partName), partName, eInfos, partOffset, readSize, partSize)
+		if err != nil {
+			return toObjectErr(err, bucket, object)
+		}
+
+		totalBytesRead += n
+
+		// partOffset will be valid only for the first part, hence reset it to 0 for
+		// the remaining parts.
+		partOffset = 0
+	} // End of read all parts loop.
+
+	// Return.
+	return nil
+}
+
 // PutObject - creates an object upon reading from the input stream
 // until EOF, erasure codes the data across all disk and additionally
 // writes `xl.json` which carries the necessary metadata for future
 // object operations.
-func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.Reader, metadata map[string]string) (string, error) {
+func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.Reader, metadata map[string]string) (md5Sum string, err error) {
 	// Verify if bucket is valid.
 	if !IsValidBucketName(bucket) {
 		return "", BucketNameInvalid{Bucket: bucket}
@@ -346,13 +444,20 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 	if metadata == nil {
 		metadata = make(map[string]string)
 	}
-	nsMutex.Lock(bucket, object)
-	defer nsMutex.Unlock(bucket, object)
-
 	uniqueID := getUUID()
 	tempErasureObj := path.Join(tmpMetaPrefix, uniqueID, "part.1")
 	minioMetaTmpBucket := path.Join(minioMetaBucket, tmpMetaPrefix)
 	tempObj := uniqueID
+
+	// Lock object.
+	nsMutex.Lock(bucket, object)
+	defer func() {
+		nsMutex.Unlock(bucket, object)
+
+		// Save to cache when we have successfully wrote to disk.
+		go xl.fillCache(bucket, object)
+
+	}()
 
 	// Initialize xl meta.
 	xlMeta := newXLMetaV1(xl.dataBlocks, xl.parityBlocks)
@@ -378,28 +483,6 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 	// Initialize md5 writer.
 	md5Writer := md5.New()
 
-	// Initialize a new multi writer.
-	var mw io.Writer
-	mw = md5Writer
-
-	// Proceed to set the cache.
-	var newBuffer io.WriteCloser
-
-	// Save uploaded object into cache if enabled and size is > 0.
-	if size > 0 && xl.objCacheEnabled {
-		// Create a new entry in memory of length.
-		newBuffer, err = xl.objCache.Create(path.Join(bucket, object), size)
-		if err == nil {
-			// Create a multi writer to write to both memory and client response.
-			mw = io.MultiWriter(newBuffer, md5Writer)
-		}
-		// Ignore error if cache is full, proceed to write the object.
-		if err != nil && err != objcache.ErrCacheFull {
-			// For any other error return here.
-			return "", toObjectErr(err, bucket, object)
-		}
-	}
-
 	// Limit the reader to its provided size if specified.
 	var limitDataReader io.Reader
 	if size > 0 {
@@ -412,7 +495,7 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 	}
 
 	// Tee reader combines incoming data stream and md5, data read from input stream is written to md5.
-	teeReader := io.TeeReader(limitDataReader, mw)
+	teeReader := io.TeeReader(limitDataReader, md5Writer)
 
 	// Collect all the previous erasure infos across the disk.
 	var eInfos []erasureInfo
@@ -455,7 +538,6 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 		if vErr := data.(*signVerifyReader).Verify(); vErr != nil {
 			// Incoming payload wrong, delete the temporary object.
 			xl.deleteObject(minioMetaTmpBucket, tempObj)
-
 			// Error return.
 			return "", toObjectErr(vErr, bucket, object)
 		}
@@ -514,11 +596,6 @@ func (xl xlObjects) PutObject(bucket string, object string, size int64, data io.
 
 	// Delete the temporary object.
 	xl.deleteObject(minioMetaTmpBucket, newUniqueID)
-
-	// Save to cache when we have sucessfully wrote to disk.
-	if size > 0 && xl.objCacheEnabled {
-		newBuffer.Close()
-	}
 
 	// Return md5sum, successfully wrote object.
 	return newMD5Hex, nil

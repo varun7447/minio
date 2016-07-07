@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -29,19 +30,33 @@ import (
 // NoExpiration represents caches to be permanent and can only be deleted.
 var NoExpiration = time.Duration(0)
 
+// DefaultExpiration represents default time duration value when individual
+// entries will be expired.
+var DefaultExpiration = time.Duration(72 * time.Hour) // 72hrs.
+
 // buffer represents the in memory cache of a single entry.
 // buffer carries value of the data and last modified time.
 type buffer struct {
 	value        []byte
-	lastModified time.Time
+	lastAccessed time.Time
+}
+
+// isExpired - returns true if buffer has expired.
+func (b buffer) isExpired(expiration time.Duration) bool {
+	return time.Now().UTC().Sub(b.lastAccessed) > expiration
 }
 
 // Cache holds the required variables to compose an in memory cache system
 // which also provides expiring key mechanism and also maxSize.
 type Cache struct {
+	*cache
+}
+
+// why this? explained in New().
+type cache struct {
 	// Mutex is used for handling the concurrent
 	// read/write requests for cache
-	mutex *sync.RWMutex
+	mutex sync.Mutex
 
 	// maxSize is a total size for overall cache
 	maxSize uint64
@@ -56,23 +71,41 @@ type Cache struct {
 	totalEvicted int
 
 	// map of objectName and its contents
-	entries map[string]buffer
+	entries map[string]*buffer
 
 	// Expiration in time duration.
-	expiry time.Duration
+	expiration time.Duration
+
+	// Janitor maintains carries cleanup interval
+	// and stop channel for cleaning up janitor routine.
+	janitor *janitor
 }
 
-// New creates an inmemory cache
-//
-// maxSize is used for expiring objects before we run out of memory
-// expiration is used for expiration of a key from cache
-func New(maxSize uint64, expiry time.Duration) *Cache {
-	return &Cache{
-		mutex:   &sync.RWMutex{},
-		maxSize: maxSize,
-		entries: make(map[string]buffer),
-		expiry:  expiry,
+// New - Return a new cache with a given default expiration duration and cleanup
+// interval. If the expiration duration is less than one (or NoExpiration),
+// the items in the cache never expire (by default), and must be deleted
+// manually.
+func New(maxSize uint64, expiration time.Duration) *Cache {
+	c := &cache{
+		maxSize:    maxSize,
+		entries:    make(map[string]*buffer),
+		expiration: expiration,
 	}
+	// This ensures that the janitor goroutine (which--granted it
+	// was enabled--is running DeleteExpired on c forever) does not keep
+	// the returned C object from being garbage collected. When it is
+	// garbage collected, the finalizer stops the janitor goroutine, after
+	// which c can be collected.
+	C := &Cache{c}
+	// We have expiration start.
+	if expiration > 0 {
+		// Start janitor.
+		runJanitor(c, expiration)
+
+		// The finalizer stops the janitor goroutine, after which c can be collected.
+		runtime.SetFinalizer(C, stopJanitor)
+	}
+	return C
 }
 
 // ErrKeyNotFoundInCache - key not found in cache.
@@ -97,18 +130,19 @@ func (c cacheBuffer) Close() (err error) {
 // to which object contents can be written and finally Close()'d. During Close() we
 // checks if the amount of data written is equal to the size of the object, in which
 // case it saves the contents to object cache.
-func (c *Cache) Create(key string, size int64) (w io.WriteCloser, err error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+func (c *cache) Create(key string, size int64) (w io.WriteCloser, err error) {
+	// Recovers any panic generated and return errors appropriately.
+	defer func() {
+		if r := recover(); r != nil {
+			// Recover any panic and return ErrCacheFull.
+			err = ErrCacheFull
+		}
+	}() // Do not crash the server.
 
 	valueLen := uint64(size)
 	if c.maxSize > 0 {
 		// Check if the size of the object is not bigger than the capacity of the cache.
 		if valueLen > c.maxSize {
-			return nil, ErrCacheFull
-		}
-		// TODO - auto expire random key.
-		if c.currentSize+valueLen > c.maxSize {
 			return nil, ErrCacheFull
 		}
 	}
@@ -121,14 +155,17 @@ func (c *Cache) Create(key string, size int64) (w io.WriteCloser, err error) {
 	onClose := func() error {
 		c.mutex.Lock()
 		defer c.mutex.Unlock()
-		if buf.Len() != int(size) {
+		if size != int64(buf.Len()) {
 			// Full object not available hence do not save buf to object cache.
 			return io.ErrShortBuffer
 		}
+		if c.currentSize+valueLen > c.maxSize {
+			return ErrCacheFull
+		}
 		// Full object available in buf, save it to cache.
-		c.entries[key] = buffer{
+		c.entries[key] = &buffer{
 			value:        buf.Bytes(),
-			lastModified: time.Now().UTC(), // Add last modified time as well.
+			lastAccessed: time.Now().UTC(), // Save last accessed time.
 		}
 		// Account for the memory allocated above.
 		c.currentSize += uint64(size)
@@ -145,36 +182,51 @@ func (c *Cache) Create(key string, size int64) (w io.WriteCloser, err error) {
 
 // Open - open the in-memory file, returns an in memory read seeker.
 // returns an error ErrNotFoundInCache, if the key does not exist.
-func (c *Cache) Open(key string) (io.ReadSeeker, error) {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
-
+func (c *cache) Open(key string) (io.ReadSeeker, error) {
 	// Entry exists, return the readable buffer.
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	buf, ok := c.entries[key]
 	if !ok {
 		return nil, ErrKeyNotFoundInCache
 	}
+	buf.lastAccessed = time.Now().UTC()
 	return bytes.NewReader(buf.value), nil
 }
 
-// Delete - delete deletes an entry from in-memory fs.
-func (c *Cache) Delete(key string) {
+// Delete - delete deletes an entry from the cache.
+func (c *cache) Delete(key string) {
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	// Delete an entry.
-	buf, ok := c.entries[key]
-	if ok {
-		c.deleteEntry(key, len(buf.value))
+	c.delete(key)
+	c.mutex.Unlock()
+	if c.OnEviction != nil {
+		c.OnEviction(key)
 	}
 }
 
-// Deletes the entry that was found.
-func (c *Cache) deleteEntry(key string, size int) {
-	delete(c.entries, key)
-	c.currentSize -= uint64(size)
-	c.totalEvicted++
-	if c.OnEviction != nil {
-		c.OnEviction(key)
+// DeleteExpired - deletes all the expired entries from the cache.
+func (c *cache) DeleteExpired() {
+	var evictedEntries []string
+	c.mutex.Lock()
+	for k, v := range c.entries {
+		if v.isExpired(c.expiration) {
+			c.delete(k)
+			evictedEntries = append(evictedEntries, k)
+		}
+	}
+	c.mutex.Unlock()
+	for _, k := range evictedEntries {
+		if c.OnEviction != nil {
+			c.OnEviction(k)
+		}
+	}
+}
+
+// Deletes a requested entry from the cache.
+func (c *cache) delete(key string) {
+	if buf, ok := c.entries[key]; ok {
+		delete(c.entries, key)
+		c.currentSize -= uint64(len(buf.value))
+		c.totalEvicted++
 	}
 }

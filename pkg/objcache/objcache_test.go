@@ -87,7 +87,7 @@ func TestObjCache(t *testing.T) {
 	}
 
 	// Test 3 validating Create succeeds and returns a writer.
-	// Subsequently we Close() without writing any data, to recieve
+	// Subsequently we Close() without writing any data, to receive
 	// `io.ErrShortBuffer`
 	testCase = testCases[2]
 	cache = New(testCase.cacheSize, testCase.expiry)

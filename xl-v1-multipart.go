@@ -677,7 +677,13 @@ func (xl xlObjects) CompleteMultipartUpload(bucket string, object string, upload
 	}
 	// Hold write lock on the destination before rename.
 	nsMutex.Lock(bucket, object)
-	defer nsMutex.Unlock(bucket, object)
+	defer func() {
+		// Unlock.
+		nsMutex.Unlock(bucket, object)
+
+		// Fill the cache once we have
+		go xl.fillCache(bucket, object)
+	}()
 
 	// Rename if an object already exists to temporary location.
 	uniqueID := getUUID()
@@ -748,8 +754,6 @@ func (xl xlObjects) CompleteMultipartUpload(bucket string, object string, upload
 	if err = xl.deleteObject(minioMetaBucket, path.Join(mpartMetaPrefix, bucket, object)); err != nil {
 		return "", toObjectErr(err, minioMetaBucket, path.Join(mpartMetaPrefix, bucket, object))
 	}
-
-	// FIXME: add caching support.
 
 	// Return md5sum.
 	return s3MD5, nil
