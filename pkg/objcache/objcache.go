@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -49,11 +48,6 @@ func (b buffer) isExpired(expiration time.Duration) bool {
 // Cache holds the required variables to compose an in memory cache system
 // which also provides expiring key mechanism and also maxSize.
 type Cache struct {
-	*cache
-}
-
-// why this? explained in New().
-type cache struct {
 	// Mutex is used for handling the concurrent
 	// read/write requests for cache
 	mutex sync.Mutex
@@ -76,9 +70,7 @@ type cache struct {
 	// Expiration in time duration.
 	expiration time.Duration
 
-	// Janitor maintains carries cleanup interval
-	// and stop channel for cleaning up janitor routine.
-	janitor *janitor
+	endJanitor chan struct{}
 }
 
 // New - Return a new cache with a given default expiration duration and cleanup
@@ -86,24 +78,15 @@ type cache struct {
 // the items in the cache never expire (by default), and must be deleted
 // manually.
 func New(maxSize uint64, expiration time.Duration) *Cache {
-	c := &cache{
+	C := &Cache{
 		maxSize:    maxSize,
 		entries:    make(map[string]*buffer),
 		expiration: expiration,
 	}
-	// This ensures that the janitor goroutine (which--granted it
-	// was enabled--is running DeleteExpired on c forever) does not keep
-	// the returned C object from being garbage collected. When it is
-	// garbage collected, the finalizer stops the janitor goroutine, after
-	// which c can be collected.
-	C := &Cache{c}
-	// We have expiration start.
 	if expiration > 0 {
 		// Start janitor.
-		runJanitor(c, expiration)
-
-		// The finalizer stops the janitor goroutine, after which c can be collected.
-		runtime.SetFinalizer(C, stopJanitor)
+		C.endJanitor = make(chan struct{})
+		go C.janitor()
 	}
 	return C
 }
@@ -126,11 +109,32 @@ func (c cacheBuffer) Close() (err error) {
 	return c.onClose()
 }
 
+// Run runs the janitor routine ticking at interval.
+func (c *Cache) janitor() {
+	for {
+		select {
+		// For each tick run delete expired entries.
+		case <-time.After(c.expiration):
+			c.DeleteExpired()
+		// Stop the routine.
+		case <-c.endJanitor:
+			return
+		}
+	}
+}
+
+// Destroy - Ends janitor go-routine so that it can be garbage collected.
+func (c *Cache) Destroy() {
+	if c.endJanitor != nil {
+		c.endJanitor <- struct{}{}
+	}
+}
+
 // Create - validates if object size fits with in cache size limit and returns a io.WriteCloser
 // to which object contents can be written and finally Close()'d. During Close() we
 // checks if the amount of data written is equal to the size of the object, in which
 // case it saves the contents to object cache.
-func (c *cache) Create(key string, size int64) (w io.WriteCloser, err error) {
+func (c *Cache) Create(key string, size int64) (w io.WriteCloser, err error) {
 	// Recovers any panic generated and return errors appropriately.
 	defer func() {
 		if r := recover(); r != nil {
@@ -182,7 +186,7 @@ func (c *cache) Create(key string, size int64) (w io.WriteCloser, err error) {
 
 // Open - open the in-memory file, returns an in memory read seeker.
 // returns an error ErrNotFoundInCache, if the key does not exist.
-func (c *cache) Open(key string) (io.ReadSeeker, error) {
+func (c *Cache) Open(key string) (io.ReadSeeker, error) {
 	// Entry exists, return the readable buffer.
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -195,7 +199,7 @@ func (c *cache) Open(key string) (io.ReadSeeker, error) {
 }
 
 // Delete - delete deletes an entry from the cache.
-func (c *cache) Delete(key string) {
+func (c *Cache) Delete(key string) {
 	c.mutex.Lock()
 	c.delete(key)
 	c.mutex.Unlock()
@@ -205,7 +209,7 @@ func (c *cache) Delete(key string) {
 }
 
 // DeleteExpired - deletes all the expired entries from the cache.
-func (c *cache) DeleteExpired() {
+func (c *Cache) DeleteExpired() {
 	var evictedEntries []string
 	c.mutex.Lock()
 	for k, v := range c.entries {
@@ -223,7 +227,7 @@ func (c *cache) DeleteExpired() {
 }
 
 // Deletes a requested entry from the cache.
-func (c *cache) delete(key string) {
+func (c *Cache) delete(key string) {
 	if buf, ok := c.entries[key]; ok {
 		delete(c.entries, key)
 		c.currentSize -= uint64(len(buf.value))
