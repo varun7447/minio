@@ -157,8 +157,13 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 	totalBytesRead := int64(0)
 
 	chunkSize := getChunkSize(xlMeta.Erasure.BlockSize, xlMeta.Erasure.DataBlocks)
-	scratch := newScratchPool(chunkSize, len(onlineDisks))
+	// scratch := newScratchPool(chunkSize, len(onlineDisks))
 
+	pool := &sync.Pool{
+		New: func() interface{} {
+			return make([]byte, chunkSize)
+		},
+	}
 	// Read from all parts.
 	for ; partIndex <= lastPartIndex; partIndex++ {
 		if length == totalBytesRead {
@@ -184,7 +189,7 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 		}
 
 		// Start reading the part name.
-		n, err := erasureReadFile(mw, onlineDisks, bucket, pathJoin(object, partName), partOffset, readSize, partSize, xlMeta.Erasure.BlockSize, xlMeta.Erasure.DataBlocks, xlMeta.Erasure.ParityBlocks, checkSums, scratch)
+		n, err := erasureReadFile(mw, onlineDisks, bucket, pathJoin(object, partName), partOffset, readSize, partSize, xlMeta.Erasure.BlockSize, xlMeta.Erasure.DataBlocks, xlMeta.Erasure.ParityBlocks, checkSums, pool)
 		if err != nil {
 			return toObjectErr(err, bucket, object)
 		}

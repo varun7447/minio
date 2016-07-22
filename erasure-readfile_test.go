@@ -18,9 +18,11 @@ package main
 
 import (
 	"bytes"
-	"math/rand"
+	"crypto/rand"
+	"io"
+	"io/ioutil"
+	"sync"
 	"testing"
-	"time"
 )
 import "reflect"
 
@@ -252,10 +254,15 @@ func TestErasureReadFileDiskFail(t *testing.T) {
 	// create scratch pool buffer which will be used by erasureReadFile as scratch space for
 	// reading from disks and erasure decoding.
 	chunkSize := getChunkSize(blockSize, dataBlocks)
-	scratch := newScratchPool(chunkSize, len(disks))
+	// scratch := newScratchPool(chunkSize, len(disks))
+	pool := &sync.Pool{
+		New: func() interface{} {
+			return make([]byte, chunkSize)
+		},
+	}
 
 	buf := &bytes.Buffer{}
-	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, scratch)
+	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, pool)
 	if err != nil {
 		t.Error(err)
 	}
@@ -268,7 +275,7 @@ func TestErasureReadFileDiskFail(t *testing.T) {
 	disks[5] = ReadDiskDown{disks[5].(*posix)}
 
 	buf.Reset()
-	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, scratch)
+	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, pool)
 	if err != nil {
 		t.Error(err)
 	}
@@ -283,7 +290,7 @@ func TestErasureReadFileDiskFail(t *testing.T) {
 	disks[11] = ReadDiskDown{disks[11].(*posix)}
 
 	buf.Reset()
-	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, scratch)
+	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, pool)
 	if err != nil {
 		t.Error(err)
 	}
@@ -294,7 +301,7 @@ func TestErasureReadFileDiskFail(t *testing.T) {
 	// 1 more disk down. 7 disks down in total. Read should fail.
 	disks[12] = ReadDiskDown{disks[12].(*posix)}
 	buf.Reset()
-	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, scratch)
+	size, err = erasureReadFile(buf, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, pool)
 	if err != errXLReadQuorum {
 		t.Fatal("expected errXLReadQuorum error")
 	}
@@ -353,12 +360,17 @@ func TestErasureReadFileOffsetLength(t *testing.T) {
 		{length - blockSize - 1, blockSize + 1},
 	}
 	chunkSize := getChunkSize(blockSize, dataBlocks)
-	scratch := newScratchPool(chunkSize, len(disks))
+	// scratch := newScratchPool(chunkSize, len(disks))
+	pool := &sync.Pool{
+		New: func() interface{} {
+			return make([]byte, chunkSize)
+		},
+	}
 	// Compare the data read from file with "data" byte array.
 	for i, testCase := range testCases {
 		expected := data[testCase.offset:(testCase.offset + testCase.length)]
 		buf := &bytes.Buffer{}
-		size, err = erasureReadFile(buf, disks, "testbucket", "testobject", testCase.offset, testCase.length, length, blockSize, dataBlocks, parityBlocks, checkSums, scratch)
+		size, err = erasureReadFile(buf, disks, "testbucket", "testobject", testCase.offset, testCase.length, length, blockSize, dataBlocks, parityBlocks, checkSums, pool)
 		if err != nil {
 			t.Error(err)
 			continue
@@ -370,70 +382,117 @@ func TestErasureReadFileOffsetLength(t *testing.T) {
 	}
 }
 
-// Test erasureReadFile with random offset and lengths.
-// This test is t.Skip()ed as it a long time to run, hence should be run
-// explicitly after commenting out t.Skip()
-func TestErasureReadFileRandomOffsetLength(t *testing.T) {
-	// Comment the following line to run this test.
-	t.SkipNow()
+// // Test erasureReadFile with random offset and lengths.
+// // This test is t.Skip()ed as it a long time to run, hence should be run
+// // explicitly after commenting out t.Skip()
+// func TestErasureReadFileRandomOffsetLength(t *testing.T) {
+// 	// Comment the following line to run this test.
+// 	t.SkipNow()
+// 	// Initialize environment needed for the test.
+// 	dataBlocks := 7
+// 	parityBlocks := 7
+// 	blockSize := int64(1 * 1024 * 1024)
+// 	setup, err := newErasureTestSetup(dataBlocks, parityBlocks, blockSize)
+// 	if err != nil {
+// 		t.Error(err)
+// 		return
+// 	}
+// 	defer setup.Remove()
+
+// 	disks := setup.disks
+
+// 	// Prepare a slice of 5MB with random data.
+// 	data := make([]byte, 5*1024*1024)
+// 	length := int64(len(data))
+// 	_, err = rand.Read(data)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+
+// 	// 10000 iterations with random offsets and lengths.
+// 	iterations := 10000
+
+// 	// Create a test file to read from.
+// 	size, checkSums, err := erasureCreateFile(disks, "testbucket", "testobject", bytes.NewReader(data), blockSize, dataBlocks, parityBlocks, dataBlocks+1)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	if size != length {
+// 		t.Errorf("erasureCreateFile returned %d, expected %d", size, length)
+// 	}
+
+// 	// To generate random offset/length.
+// 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+// 	// create scratch pool buffer which will be used by erasureReadFile as scratch space for
+// 	// reading from disks and erasure decoding.
+// 	chunkSize := getChunkSize(blockSize, dataBlocks)
+// 	// scratch := newScratchPool(chunkSize, len(disks))
+// 	pool := &sync.Pool{
+// 		New: func() interface{} {
+// 			return make([]byte, chunkSize)
+// 		},
+// 	}
+
+// 	buf := &bytes.Buffer{}
+
+// 	// Verify erasureReadFile() for random offsets and lengths.
+// 	for i := 0; i < iterations; i++ {
+// 		offset := r.Int63n(length)
+// 		readLen := r.Int63n(length - offset)
+
+// 		expected := data[offset : offset+readLen]
+
+// 		size, err = erasureReadFile(buf, disks, "testbucket", "testobject", offset, readLen, length, blockSize, dataBlocks, parityBlocks, checkSums, pool)
+// 		if err != nil {
+// 			t.Fatal(err, offset, readLen)
+// 		}
+// 		got := buf.Bytes()
+// 		if !bytes.Equal(expected, got) {
+// 			t.Fatalf("read data is different from what was expected, offset=%d length=%d", offset, readLen)
+// 		}
+// 		buf.Reset()
+// 	}
+// }
+
+func BenchmarkErasureReadFile(b *testing.B) {
 	// Initialize environment needed for the test.
 	dataBlocks := 7
 	parityBlocks := 7
 	blockSize := int64(1 * 1024 * 1024)
 	setup, err := newErasureTestSetup(dataBlocks, parityBlocks, blockSize)
 	if err != nil {
-		t.Error(err)
+		b.Error(err)
 		return
 	}
 	defer setup.Remove()
 
 	disks := setup.disks
-
-	// Prepare a slice of 5MB with random data.
-	data := make([]byte, 5*1024*1024)
-	length := int64(len(data))
-	_, err = rand.Read(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// 10000 iterations with random offsets and lengths.
-	iterations := 10000
-
+	length := int64(5 * GiByte)
+	reader := io.LimitReader(rand.Reader, length)
 	// Create a test file to read from.
-	size, checkSums, err := erasureCreateFile(disks, "testbucket", "testobject", bytes.NewReader(data), blockSize, dataBlocks, parityBlocks, dataBlocks+1)
+	size, checkSums, err := erasureCreateFile(disks, "testbucket", "testobject", reader, blockSize, dataBlocks, parityBlocks, dataBlocks+1)
 	if err != nil {
-		t.Fatal(err)
+		b.Fatal(err)
 	}
 	if size != length {
-		t.Errorf("erasureCreateFile returned %d, expected %d", size, length)
+		b.Errorf("erasureCreateFile returned %d, expected %d", size, length)
 	}
-
-	// To generate random offset/length.
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// create scratch pool buffer which will be used by erasureReadFile as scratch space for
 	// reading from disks and erasure decoding.
 	chunkSize := getChunkSize(blockSize, dataBlocks)
-	scratch := newScratchPool(chunkSize, len(disks))
-
-	buf := &bytes.Buffer{}
-
-	// Verify erasureReadFile() for random offsets and lengths.
-	for i := 0; i < iterations; i++ {
-		offset := r.Int63n(length)
-		readLen := r.Int63n(length - offset)
-
-		expected := data[offset : offset+readLen]
-
-		size, err = erasureReadFile(buf, disks, "testbucket", "testobject", offset, readLen, length, blockSize, dataBlocks, parityBlocks, checkSums, scratch)
+	// scratch := newScratchPool(chunkSize, len(disks))
+	pool := &sync.Pool{
+		New: func() interface{} {
+			return make([]byte, chunkSize)
+		},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		size, err = erasureReadFile(ioutil.Discard, disks, "testbucket", "testobject", 0, length, length, blockSize, dataBlocks, parityBlocks, checkSums, pool)
 		if err != nil {
-			t.Fatal(err, offset, readLen)
+			b.Error(err)
 		}
-		got := buf.Bytes()
-		if !bytes.Equal(expected, got) {
-			t.Fatalf("read data is different from what was expected, offset=%d length=%d", offset, readLen)
-		}
-		buf.Reset()
 	}
 }
