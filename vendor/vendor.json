@@ -119,6 +119,12 @@
 			"revisionTime": "2016-07-24T00:05:56Z"
 		},
 		{
+			"checksumSHA1": "uG/irJIgifYdc+HC1kF6Gwgn7kU=",
+			"path": "github.com/oxtoacart/bpool",
+			"revision": "4e1c5567d7c2dd59fa4c7c83d34c2f3528b025d6",
+			"revisionTime": "2015-07-12T13:31:11Z"
+		},
+		{
 			"path": "github.com/pkg/profile",
 			"revision": "c78aac22bd43883fd2817833b982153dcac17b3b",
 			"revisionTime": "2016-05-18T16:56:57+10:00"

@@ -28,6 +28,7 @@ import (
 
 	"github.com/minio/minio/pkg/mimedb"
 	"github.com/minio/minio/pkg/objcache"
+	"github.com/oxtoacart/bpool"
 )
 
 /// Object Operations
@@ -152,6 +153,9 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 		}
 	}
 
+	chunkSize := getChunkSize(xlMeta.Erasure.BlockSize, xlMeta.Erasure.DataBlocks)
+	pool := bpool.NewBytePool(len(onlineDisks), int(chunkSize))
+
 	totalBytesRead := int64(0)
 	// Read from all parts.
 	for ; partIndex <= lastPartIndex; partIndex++ {
@@ -183,7 +187,7 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 		}
 
 		// Start reading the part name.
-		n, err := erasureReadFile(mw, onlineDisks, bucket, pathJoin(object, partName), partOffset, readSize, partSize, xlMeta.Erasure.BlockSize, xlMeta.Erasure.DataBlocks, xlMeta.Erasure.ParityBlocks, checkSums)
+		n, err := erasureReadFile(mw, onlineDisks, bucket, pathJoin(object, partName), partOffset, readSize, partSize, xlMeta.Erasure.BlockSize, xlMeta.Erasure.DataBlocks, xlMeta.Erasure.ParityBlocks, checkSums, pool)
 		if err != nil {
 			return toObjectErr(err, bucket, object)
 		}
