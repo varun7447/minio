@@ -592,6 +592,80 @@ func (s *posix) AppendFile(volume, path string, buf []byte) (err error) {
 	return err
 }
 
+// WriteFile
+func (s *posix) WriteFile(volume, path string, offset int64, buf []byte) (err error) {
+	defer func() {
+		if err == syscall.EIO {
+			atomic.AddInt32(&s.ioErrCount, 1)
+		}
+	}()
+
+	if s.ioErrCount > maxAllowedIOError {
+		return errFaultyDisk
+	}
+
+	// Validate if disk is free.
+	if err = checkDiskFree(s.diskPath, s.minFreeDisk); err != nil {
+		return err
+	}
+
+	volumeDir, err := s.getVolDir(volume)
+	if err != nil {
+		return err
+	}
+	// Stat a volume entry.
+	_, err = os.Stat(preparePath(volumeDir))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return errVolumeNotFound
+		}
+		return err
+	}
+	filePath := pathJoin(volumeDir, path)
+	if err = checkPathLength(filePath); err != nil {
+		return err
+	}
+	// Verify if the file already exists and is not of regular type.
+	var st os.FileInfo
+	if st, err = os.Stat(preparePath(filePath)); err == nil {
+		if !st.Mode().IsRegular() {
+			return errIsNotRegular
+		}
+	}
+	// Create top level directories if they don't exist.
+	// with mode 0777 mkdir honors system umask.
+	if err = mkdirAll(filepath.Dir(filePath), 0777); err != nil {
+		// File path cannot be verified since one of the parents is a file.
+		if strings.Contains(err.Error(), "not a directory") {
+			return errFileAccessDenied
+		} else if runtime.GOOS == "windows" && strings.Contains(err.Error(), "system cannot find the path specified") {
+			// Add specific case for windows.
+			return errFileAccessDenied
+		}
+		return err
+	}
+
+	// Creates the named file with mode 0666 (before umask), or starts appending
+	// to an existig file.
+	w, err := os.OpenFile(preparePath(filePath), os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		// File path cannot be verified since one of the parents is a file.
+		if strings.Contains(err.Error(), "not a directory") {
+			return errFileAccessDenied
+		}
+		return err
+	}
+
+	// Close upon return.
+	defer w.Close()
+
+	w.Seek(offset, os.SEEK_SET)
+
+	// Return io.Copy
+	_, err = io.Copy(w, bytes.NewReader(buf))
+	return err
+}
+
 // StatFile - get file info.
 func (s *posix) StatFile(volume, path string) (file FileInfo, err error) {
 	defer func() {

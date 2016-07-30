@@ -28,6 +28,7 @@ type StorageAPI interface {
 	ListDir(volume, dirPath string) ([]string, error)
 	ReadFile(volume string, path string, offset int64, buf []byte) (n int64, err error)
 	AppendFile(volume string, path string, buf []byte) (err error)
+	WriteFile(volume string, path string, offset int64, buf []byte) (err error)
 	RenameFile(srcVolume, srcPath, dstVolume, dstPath string) error
 	StatFile(volume string, path string) (file FileInfo, err error)
 	DeleteFile(volume string, path string) (err error)

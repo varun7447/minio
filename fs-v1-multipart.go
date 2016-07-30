@@ -255,7 +255,7 @@ func (fs fsObjects) newMultipartUpload(bucket string, object string, meta map[st
 //
 // Implements S3 compatible initiate multipart API.
 func (fs fsObjects) NewMultipartUpload(bucket, object string, meta map[string]string) (string, error) {
-	meta = make(map[string]string) // Reset the meta value, we are not going to save headers for fs.
+	// meta = make(map[string]string) // Reset the meta value, we are not going to save headers for fs.
 	// Verify if bucket name is valid.
 	if !IsValidBucketName(bucket) {
 		return "", BucketNameInvalid{Bucket: bucket}
@@ -269,6 +269,71 @@ func (fs fsObjects) NewMultipartUpload(bucket, object string, meta map[string]st
 		return "", ObjectNameInvalid{Bucket: bucket, Object: object}
 	}
 	return fs.newMultipartUpload(bucket, object, meta)
+}
+
+func (fs fsObjects) PutObjectPartV2(bucket, object, uploadID string, partID int, size int64, partSize int64, reader io.Reader, md5Hex string) (string, error) {
+	partFile := "object0"
+
+	nsMutex.Lock(minioMetaBucket, pathJoin(mpartMetaPrefix, bucket, object, uploadID, strconv.Itoa(partID)))
+	defer nsMutex.Unlock(minioMetaBucket, pathJoin(mpartMetaPrefix, bucket, object, uploadID, strconv.Itoa(partID)))
+
+	uploadIDPath := path.Join(mpartMetaPrefix, bucket, object, uploadID)
+	partFilePath := path.Join(uploadIDPath, partFile)
+
+	bufSize := int64(readSizeV1)
+	if size > 0 && bufSize > size {
+		bufSize = size
+	}
+	buf := make([]byte, int(bufSize))
+	bytesWritten := int64(0)
+	for {
+		n, rErr := reader.Read(buf)
+		if rErr != nil && rErr != io.EOF {
+			return "", InvalidPart{}
+		}
+		if n > 0 {
+			wErr := fs.storage.WriteFile(minioMetaBucket, partFilePath, partSize*int64(partID-1)+bytesWritten, buf[0:n])
+			if wErr != nil {
+				return "", InvalidPart{}
+			}
+		}
+		bytesWritten += int64(n)
+		if rErr == io.EOF {
+			break
+		}
+	}
+
+	if bytesWritten != size {
+		return "", InvalidPart{}
+	}
+
+	// Hold write lock as we are updating fs.json
+	nsMutex.Lock(minioMetaBucket, uploadIDPath)
+	defer nsMutex.Unlock(minioMetaBucket, uploadIDPath)
+
+	// Just check if the uploadID exists to avoid copy if it doesn't.
+	if !fs.isUploadIDExists(bucket, object, uploadID) {
+		return "", InvalidUploadID{UploadID: uploadID}
+	}
+
+	fsMeta, err := readFSMetadata(fs.storage, minioMetaBucket, uploadIDPath)
+	if err != nil {
+		return "", toObjectErr(err, minioMetaBucket, uploadIDPath)
+	}
+	fsMeta.AddObjectPart(partID, partFile, md5Hex, size)
+
+	tempFSMetadataPath := path.Join(tmpMetaPrefix, getUUID()+"-"+fsMetaJSONFile)
+	if err = writeFSMetadata(fs.storage, minioMetaBucket, tempFSMetadataPath, fsMeta); err != nil {
+		return "", toObjectErr(err, minioMetaBucket, tempFSMetadataPath)
+	}
+	err = fs.storage.RenameFile(minioMetaBucket, tempFSMetadataPath, minioMetaBucket, path.Join(uploadIDPath, fsMetaJSONFile))
+	if err != nil {
+		if dErr := fs.storage.DeleteFile(minioMetaBucket, tempFSMetadataPath); dErr != nil {
+			return "", toObjectErr(dErr, minioMetaBucket, tempFSMetadataPath)
+		}
+		return "", toObjectErr(err, minioMetaBucket, uploadIDPath)
+	}
+	return md5Hex, nil
 }
 
 // PutObjectPart - reads incoming data until EOF for the part file on
@@ -291,13 +356,20 @@ func (fs fsObjects) PutObjectPart(bucket, object, uploadID string, partID int, s
 	uploadIDPath := path.Join(mpartMetaPrefix, bucket, object, uploadID)
 
 	nsMutex.RLock(minioMetaBucket, uploadIDPath)
-	// Just check if the uploadID exists to avoid copy if it doesn't.
-	uploadIDExists := fs.isUploadIDExists(bucket, object, uploadID)
+	fsMeta, err := readFSMetadata(fs.storage, minioMetaBucket, uploadIDPath)
 	nsMutex.RUnlock(minioMetaBucket, uploadIDPath)
-	if !uploadIDExists {
+	if err != nil {
 		return "", InvalidUploadID{UploadID: uploadID}
 	}
 
+	partSizeStr := fsMeta.Meta["X-Minio-Meta-Part-Size"]
+	if partSizeStr != "" {
+		partSize, err := strconv.Atoi(partSizeStr)
+		if err != nil {
+			return "", InvalidPart{}
+		}
+		return fs.PutObjectPartV2(bucket, object, uploadID, partID, size, int64(partSize), data, md5Hex)
+	}
 	// Hold write lock on the part so that there is no parallel upload on the part.
 	nsMutex.Lock(minioMetaBucket, pathJoin(mpartMetaPrefix, bucket, object, uploadID, strconv.Itoa(partID)))
 	defer nsMutex.Unlock(minioMetaBucket, pathJoin(mpartMetaPrefix, bucket, object, uploadID, strconv.Itoa(partID)))
@@ -365,7 +437,7 @@ func (fs fsObjects) PutObjectPart(bucket, object, uploadID string, partID int, s
 		return "", InvalidUploadID{UploadID: uploadID}
 	}
 
-	fsMeta, err := readFSMetadata(fs.storage, minioMetaBucket, uploadIDPath)
+	fsMeta, err = readFSMetadata(fs.storage, minioMetaBucket, uploadIDPath)
 	if err != nil {
 		return "", toObjectErr(err, minioMetaBucket, uploadIDPath)
 	}
@@ -518,6 +590,45 @@ func (fs fsObjects) CompleteMultipartUpload(bucket string, object string, upload
 	s3MD5, err := completeMultipartMD5(parts...)
 	if err != nil {
 		return "", err
+	}
+
+	expectedSizeStr := fsMeta.Meta["X-Minio-Meta-Part-Size"]
+	if expectedSizeStr != "" {
+		err = fs.storage.RenameFile(minioMetaBucket, pathJoin(uploadIDPath, "object0"), bucket, object)
+		if err != nil {
+			return "", InvalidUploadID{UploadID: uploadID}
+		}
+
+		// Hold the lock so that two parallel complete-multipart-uploads do not
+		// leave a stale uploads.json behind.
+		nsMutex.Lock(minioMetaBucket, pathJoin(mpartMetaPrefix, bucket, object))
+		defer nsMutex.Unlock(minioMetaBucket, pathJoin(mpartMetaPrefix, bucket, object))
+
+		// Validate if there are other incomplete upload-id's present for
+		// the object, if yes do not attempt to delete 'uploads.json'.
+		uploadsJSON, err := readUploadsJSON(bucket, object, fs.storage)
+		if err != nil {
+			return "", toObjectErr(err, minioMetaBucket, object)
+		}
+		// If we have successfully read `uploads.json`, then we proceed to
+		// purge or update `uploads.json`.
+		uploadIDIdx := uploadsJSON.Index(uploadID)
+		if uploadIDIdx != -1 {
+			uploadsJSON.Uploads = append(uploadsJSON.Uploads[:uploadIDIdx], uploadsJSON.Uploads[uploadIDIdx+1:]...)
+		}
+		if len(uploadsJSON.Uploads) > 0 {
+			if err = fs.updateUploadsJSON(bucket, object, uploadsJSON); err != nil {
+				return "", toObjectErr(err, minioMetaBucket, path.Join(mpartMetaPrefix, bucket, object))
+			}
+			// Return success.
+			return s3MD5, nil
+		}
+
+		if err = fs.storage.DeleteFile(minioMetaBucket, path.Join(mpartMetaPrefix, bucket, object, uploadsJSONFile)); err != nil {
+			return "", toObjectErr(err, minioMetaBucket, path.Join(mpartMetaPrefix, bucket, object))
+		}
+
+		return s3MD5, nil
 	}
 
 	tempObj := path.Join(tmpMetaPrefix, uploadID+"-"+"part.1")
