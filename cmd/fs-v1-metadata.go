@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	fsMetaJSONFile   = "fs.json"
-	fsFormatJSONFile = "format.json"
+	fsMetaJSONFile       = "fs.json"
+	fsAppendMetaJSONFile = "fs-append.json"
+	fsFormatJSONFile     = "format.json"
 )
 
 // A fsMetaV1 represents a metadata header mapping keys to sets of values.
@@ -93,6 +94,34 @@ func readFSMetadata(disk StorageAPI, bucket, object string) (fsMeta fsMetaV1, er
 	return fsMeta, nil
 }
 
+func readFSAppendMetadata(disk StorageAPI, bucket, filePath string) (fsMeta fsMetaV1, err error) {
+	buf, err := disk.ReadAll(bucket, filePath)
+	if err != nil {
+		return fsMetaV1{}, err
+	}
+
+	// Decode `fs-append.json` into fsMeta structure.
+	if err = json.Unmarshal(buf, &fsMeta); err != nil {
+		return fsMetaV1{}, err
+	}
+
+	// Success.
+	return fsMeta, nil
+}
+
+func writeFSAppendMetadata(disk StorageAPI, bucket, filePath string, fsMeta fsMetaV1) (err error) {
+	tmpPath := path.Join(tmpMetaPrefix, getUUID())
+	metadataBytes, err := json.Marshal(fsMeta)
+	if err != nil {
+		return err
+	}
+	if err = disk.AppendFile(minioMetaBucket, tmpPath, metadataBytes); err != nil {
+		return err
+	}
+	disk.RenameFile(minioMetaBucket, tmpPath, bucket, filePath)
+	return nil
+}
+
 // newFSMetaV1 - initializes new fsMetaV1.
 func newFSMetaV1() (fsMeta fsMetaV1) {
 	fsMeta = fsMetaV1{}
@@ -142,6 +171,19 @@ func writeFSMetadata(storage StorageAPI, bucket, path string, fsMeta fsMetaV1) e
 		return err
 	}
 	return nil
+}
+
+func isPartsSame(uploadedParts []objectPartInfo, completeParts []completePart) bool {
+	if len(uploadedParts) != len(completeParts) {
+		return false
+	}
+	for i := range completeParts {
+		if uploadedParts[i].Number != completeParts[i].PartNumber ||
+			uploadedParts[i].ETag != completeParts[i].ETag {
+			return false
+		}
+	}
+	return true
 }
 
 var extendedHeaders = []string{
