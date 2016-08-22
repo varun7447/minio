@@ -27,6 +27,7 @@ import (
 const (
 	fsMetaJSONFile       = "fs.json"
 	fsAppendMetaJSONFile = "fs-append.json"
+	fsAppendDataFile     = "fs-append.data"
 	fsFormatJSONFile     = "format.json"
 )
 
@@ -78,9 +79,9 @@ func (m *fsMetaV1) AddObjectPart(partNumber int, partName string, partETag strin
 }
 
 // readFSMetadata - returns the object metadata `fs.json` content.
-func readFSMetadata(disk StorageAPI, bucket, object string) (fsMeta fsMetaV1, err error) {
+func readFSMetadata(disk StorageAPI, bucket, filePath string) (fsMeta fsMetaV1, err error) {
 	// Read all `fs.json`.
-	buf, err := disk.ReadAll(bucket, path.Join(object, fsMetaJSONFile))
+	buf, err := disk.ReadAll(bucket, filePath)
 	if err != nil {
 		return fsMetaV1{}, err
 	}
@@ -94,22 +95,8 @@ func readFSMetadata(disk StorageAPI, bucket, object string) (fsMeta fsMetaV1, er
 	return fsMeta, nil
 }
 
-func readFSAppendMetadata(disk StorageAPI, bucket, filePath string) (fsMeta fsMetaV1, err error) {
-	buf, err := disk.ReadAll(bucket, filePath)
-	if err != nil {
-		return fsMetaV1{}, err
-	}
-
-	// Decode `fs-append.json` into fsMeta structure.
-	if err = json.Unmarshal(buf, &fsMeta); err != nil {
-		return fsMetaV1{}, err
-	}
-
-	// Success.
-	return fsMeta, nil
-}
-
-func writeFSAppendMetadata(disk StorageAPI, bucket, filePath string, fsMeta fsMetaV1) (err error) {
+// Write fsMeta to fs.json or fs-append.json.
+func writeFSMetadata(disk StorageAPI, bucket, filePath string, fsMeta fsMetaV1) (err error) {
 	tmpPath := path.Join(tmpMetaPrefix, getUUID())
 	metadataBytes, err := json.Marshal(fsMeta)
 	if err != nil {
@@ -118,8 +105,7 @@ func writeFSAppendMetadata(disk StorageAPI, bucket, filePath string, fsMeta fsMe
 	if err = disk.AppendFile(minioMetaBucket, tmpPath, metadataBytes); err != nil {
 		return err
 	}
-	disk.RenameFile(minioMetaBucket, tmpPath, bucket, filePath)
-	return nil
+	return disk.RenameFile(minioMetaBucket, tmpPath, bucket, filePath)
 }
 
 // newFSMetaV1 - initializes new fsMetaV1.
@@ -160,19 +146,7 @@ func writeFSFormatData(storage StorageAPI, fsFormat formatConfigV1) error {
 	return nil
 }
 
-// writeFSMetadata - writes `fs.json` metadata, marshals fsMeta object into json
-// and saves it to disk.
-func writeFSMetadata(storage StorageAPI, bucket, path string, fsMeta fsMetaV1) error {
-	metadataBytes, err := json.Marshal(fsMeta)
-	if err != nil {
-		return err
-	}
-	if err = storage.AppendFile(bucket, path, metadataBytes); err != nil {
-		return err
-	}
-	return nil
-}
-
+// Return if the part info in uploadedParts and completeParts are same.
 func isPartsSame(uploadedParts []objectPartInfo, completeParts []completePart) bool {
 	if len(uploadedParts) != len(completeParts) {
 		return false
