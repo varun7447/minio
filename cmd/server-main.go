@@ -232,6 +232,10 @@ func serverMain(c *cli.Context) {
 
 	// Server address.
 	serverAddress := c.String("address")
+	if serverAddress == "" {
+		// Command line option overrides the MINIO_ADDRESS env var.
+		serverAddress = os.Getenv("MINIO_ADDRESS")
+	}
 
 	// Check if requested port is available.
 	port := getPort(serverAddress)
