@@ -278,11 +278,22 @@ func partToAppend(fsMeta fsMetaV1, fsAppendMeta fsMetaV1) (part objectPartInfo, 
 	return fsMeta.Parts[nextPartIndex], true
 }
 
+// Returns metadata path for the file holding info about the parts that
+// have been appended to the "append-file"
+func getFSAppendMetaPath(uploadID string) string {
+	return path.Join(tmpMetaPrefix, uploadID+".json")
+}
+
+// Returns path for the append-file.
+func getFSAppendDataPath(uploadID string) string {
+	return path.Join(tmpMetaPrefix, uploadID+".data")
+}
+
 // Append parts to fsAppendDataFile.
 func appendParts(disk StorageAPI, bucket, object, uploadID string) {
 	uploadIDPath := path.Join(mpartMetaPrefix, bucket, object, uploadID)
 	// fs-append.json path
-	fsAppendMetaPath := path.Join(mpartMetaPrefix, bucket, object, uploadID, fsAppendMetaJSONFile)
+	fsAppendMetaPath := getFSAppendMetaPath(uploadID)
 	// fs.json path
 	fsMetaPath := path.Join(mpartMetaPrefix, bucket, object, uploadID, fsMetaJSONFile)
 
@@ -317,7 +328,7 @@ func appendParts(disk StorageAPI, bucket, object, uploadID string) {
 	defer nsMutex.Unlock(minioMetaBucket, pathJoin(mpartMetaPrefix, bucket, object, uploadID, strconv.Itoa(part.Number)))
 
 	// Proceed to append "part"
-	fsAppendDataPath := pathJoin(mpartMetaPrefix, bucket, object, uploadID, fsAppendDataFile)
+	fsAppendDataPath := getFSAppendDataPath(uploadID)
 	tmpDataPath := path.Join(tmpMetaPrefix, getUUID())
 	if part.Number != 1 {
 		// Move it to tmp location before appending so that we don't leave inconsitent data
@@ -606,7 +617,7 @@ func (fs fsObjects) CompleteMultipartUpload(bucket string, object string, upload
 	}
 
 	// fs-append.json path
-	fsAppendMetaPath := path.Join(mpartMetaPrefix, bucket, object, uploadID, fsAppendMetaJSONFile)
+	fsAppendMetaPath := getFSAppendMetaPath(uploadID)
 	// Lock fs-append.json so that no parallel appendParts() is being done.
 	nsMutex.Lock(minioMetaBucket, fsAppendMetaPath)
 	defer nsMutex.Unlock(minioMetaBucket, fsAppendMetaPath)
@@ -626,10 +637,12 @@ func (fs fsObjects) CompleteMultipartUpload(bucket string, object string, upload
 
 	fsAppendMeta, err := readFSMetadata(fs.storage, minioMetaBucket, fsAppendMetaPath)
 	if err == nil && isPartsSame(fsAppendMeta.Parts, parts) {
-		fsAppendDataPath := pathJoin(mpartMetaPrefix, bucket, object, uploadID, fsAppendDataFile)
+		fsAppendDataPath := getFSAppendDataPath(uploadID)
 		if err = fs.storage.RenameFile(minioMetaBucket, fsAppendDataPath, bucket, object); err != nil {
 			return "", toObjectErr(err, minioMetaBucket, fsAppendDataPath)
 		}
+		// Remove the append-file metadata file in tmp location as we no longer need it.
+		fs.storage.DeleteFile(minioMetaBucket, fsAppendMetaPath)
 	} else {
 		tempObj := path.Join(tmpMetaPrefix, uploadID+"-"+"part.1")
 
