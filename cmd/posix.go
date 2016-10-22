@@ -45,6 +45,7 @@ type posix struct {
 	suppliedDiskPath string
 	minFreeSpace     int64
 	minFreeInodes    int64
+	fdcache          map[string]io.WriteCloser
 }
 
 var errFaultyDisk = errors.New("Faulty disk")
@@ -114,6 +115,7 @@ func newPosix(diskPath string) (StorageAPI, error) {
 		diskPath:         diskPath,
 		minFreeSpace:     fsMinFreeSpace,
 		minFreeInodes:    fsMinFreeInodesPercent,
+		fdcache:          make(map[string]io.WriteCloser),
 	}
 	st, err := os.Stat(preparePath(diskPath))
 	if err != nil {
@@ -554,10 +556,10 @@ func (s *posix) AppendFile(volume, path string, buf []byte) (err error) {
 		return errFaultyDisk
 	}
 
-	// Validate if disk is free.
-	if err = s.checkDiskFree(); err != nil {
-		return err
-	}
+	// // Validate if disk is free.
+	// if err = s.checkDiskFree(); err != nil {
+	// 	return err
+	// }
 
 	volumeDir, err := s.getVolDir(volume)
 	if err != nil {
@@ -595,19 +597,24 @@ func (s *posix) AppendFile(volume, path string, buf []byte) (err error) {
 		return err
 	}
 
-	// Creates the named file with mode 0666 (before umask), or starts appending
-	// to an existig file.
-	w, err := os.OpenFile(preparePath(filePath), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
-	if err != nil {
-		// File path cannot be verified since one of the parents is a file.
-		if isSysErrNotDir(err) {
-			return errFileAccessDenied
+	w := s.fdcache[path]
+	if w == nil {
+		// Creates the named file with mode 0666 (before umask), or starts appending
+		// to an existig file.
+		var err error
+		w, err = os.OpenFile(preparePath(filePath), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+		if err != nil {
+			// File path cannot be verified since one of the parents is a file.
+			if isSysErrNotDir(err) {
+				return errFileAccessDenied
+			}
+			return err
 		}
-		return err
+		s.fdcache[path] = w
 	}
 
 	// Close upon return.
-	defer w.Close()
+	// defer w.Close()
 
 	// Return io.Copy
 	_, err = io.Copy(w, bytes.NewReader(buf))
@@ -759,7 +766,11 @@ func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err e
 			atomic.AddInt32(&s.ioErrCount, 1)
 		}
 	}()
-
+	w := s.fdcache[srcPath]
+	if w != nil {
+		w.Close()
+		delete(s.fdcache, srcPath)
+	}
 	if s.ioErrCount > maxAllowedIOError {
 		return errFaultyDisk
 	}
@@ -838,5 +849,6 @@ func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err e
 		}
 		return err
 	}
+
 	return nil
 }
