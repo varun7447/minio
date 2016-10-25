@@ -198,6 +198,9 @@ func (fs fsObjects) GetObject(bucket, object string, offset int64, length int64,
 	if !IsValidBucketName(bucket) {
 		return traceError(BucketNameInvalid{Bucket: bucket})
 	}
+	if strings.HasSuffix(object, "/") {
+		return traceError(ObjectNotFound{bucket, object})
+	}
 	// Verify if object is valid.
 	if !IsValidObjectName(object) {
 		return traceError(ObjectNameInvalid{Bucket: bucket, Object: object})
@@ -326,6 +329,9 @@ func (fs fsObjects) GetObjectInfo(bucket, object string) (ObjectInfo, error) {
 	// Verify if bucket is valid.
 	if !IsValidBucketName(bucket) {
 		return ObjectInfo{}, traceError(BucketNameInvalid{Bucket: bucket})
+	}
+	if strings.HasSuffix(object, "/") {
+		return ObjectInfo{}, traceError(ObjectNotFound{bucket, object})
 	}
 	// Verify if object is valid.
 	if !IsValidObjectName(object) {
