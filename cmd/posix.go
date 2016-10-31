@@ -46,6 +46,7 @@ type posix struct {
 	minFreeSpace  int64
 	minFreeInodes int64
 	pool          sync.Pool
+	fdcache       map[string]*os.File
 }
 
 var errFaultyDisk = errors.New("Faulty disk")
@@ -122,6 +123,7 @@ func newPosix(path string) (StorageAPI, error) {
 				return &b
 			},
 		},
+		fdcache: make(map[string]*os.File),
 	}
 	fi, err := os.Stat(preparePath(diskPath))
 	if err == nil {
@@ -579,6 +581,10 @@ func (s *posix) createFile(volume, path string) (f *os.File, err error) {
 		}
 	}()
 
+	if s.fdcache[path] != nil {
+		return s.fdcache[path], nil
+	}
+
 	if s.ioErrCount > maxAllowedIOError {
 		return nil, errFaultyDisk
 	}
@@ -634,7 +640,7 @@ func (s *posix) createFile(volume, path string) (f *os.File, err error) {
 		}
 		return nil, err
 	}
-
+	s.fdcache[path] = w
 	return w, nil
 }
 
@@ -669,7 +675,7 @@ func (s *posix) PrepareFile(volume, path string, fileSize int64) (err error) {
 	}
 
 	// Close upon return.
-	defer w.Close()
+	// defer w.Close()
 
 	// Allocate needed disk space to append data
 	e := Fallocate(int(w.Fd()), 0, fileSize)
@@ -711,7 +717,7 @@ func (s *posix) AppendFile(volume, path string, buf []byte) (err error) {
 	}
 
 	// Close upon return.
-	defer w.Close()
+	// defer w.Close()
 
 	bufp := s.pool.Get().(*[]byte)
 
@@ -827,6 +833,11 @@ func (s *posix) DeleteFile(volume, path string) (err error) {
 		}
 	}()
 
+	f := s.fdcache[path]
+	if f != nil {
+		delete(s.fdcache, path)
+		f.Close()
+	}
 	if s.ioErrCount > maxAllowedIOError {
 		return errFaultyDisk
 	}
@@ -867,6 +878,11 @@ func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err e
 		}
 	}()
 
+	f := s.fdcache[srcPath]
+	if f != nil {
+		delete(s.fdcache, srcPath)
+		f.Close()
+	}
 	if s.ioErrCount > maxAllowedIOError {
 		return errFaultyDisk
 	}
