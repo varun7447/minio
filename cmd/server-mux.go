@@ -135,8 +135,41 @@ type ListenerMux struct {
 	net.Listener
 	config *tls.Config
 	// Cond is used to signal Close when there are no references to the listener.
-	cond *sync.Cond
-	refs int
+	acceptResCh chan ListenerMuxAcceptRes
+	cond        *sync.Cond
+	refs        int
+}
+
+func newListenerMux(listener net.Listener, config *tls.Config) *ListenerMux {
+	l := ListenerMux{
+		Listener:    listener,
+		config:      config,
+		cond:        sync.NewCond(&sync.Mutex{}),
+		acceptResCh: make(chan ListenerMuxAcceptRes),
+	}
+	go func() {
+		for {
+			conn, err := l.Listener.Accept()
+			go func() {
+				if err != nil {
+					l.acceptResCh <- ListenerMuxAcceptRes{err: err}
+					return
+				}
+				connMux := NewConnMux(conn)
+				if connMux.PeekProtocol() == "tls" {
+					l.acceptResCh <- ListenerMuxAcceptRes{tls.Server(connMux, l.config), nil}
+				} else {
+					l.acceptResCh <- ListenerMuxAcceptRes{connMux, nil}
+				}
+			}()
+		}
+	}()
+	return &l
+}
+
+type ListenerMuxAcceptRes struct {
+	conn net.Conn
+	err  error
 }
 
 // IsClosed - Returns if the underlying listener is closed fully.
@@ -187,16 +220,8 @@ func (l *ListenerMux) Accept() (net.Conn, error) {
 	l.incRef()
 	defer l.decRef()
 
-	conn, err := l.Listener.Accept()
-	if err != nil {
-		return conn, err
-	}
-	connMux := NewConnMux(conn)
-	protocol := connMux.PeekProtocol()
-	if protocol == "tls" {
-		return tls.Server(connMux, l.config), nil
-	}
-	return connMux, nil
+	res := <-l.acceptResCh
+	return res.conn, res.err
 }
 
 // ServerMux - the main mux server
@@ -247,11 +272,7 @@ func initListeners(serverAddr string, tls *tls.Config) ([]*ListenerMux, error) {
 		if err != nil {
 			return nil, err
 		}
-		listeners = append(listeners, &ListenerMux{
-			Listener: listener,
-			config:   tls,
-			cond:     sync.NewCond(&sync.Mutex{}),
-		})
+		listeners = append(listeners, newListenerMux(listener, tls))
 		return listeners, nil
 	}
 	var addrs []string
@@ -272,11 +293,7 @@ func initListeners(serverAddr string, tls *tls.Config) ([]*ListenerMux, error) {
 		if err != nil {
 			return nil, err
 		}
-		listeners = append(listeners, &ListenerMux{
-			Listener: listener,
-			config:   tls,
-			cond:     sync.NewCond(&sync.Mutex{}),
-		})
+		listeners = append(listeners, newListenerMux(listener, tls))
 	}
 	return listeners, nil
 }
