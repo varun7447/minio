@@ -19,7 +19,6 @@ package cmd
 import (
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/minio/minio-go/pkg/set"
 )
@@ -121,34 +120,7 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 
 	// URL style endpoints are used for XL.
 	if len(uniqueHosts) == 1 {
-		endpointHost := uniqueHosts[0]
-		portFound := true
-		if _, _, err = net.SplitHostPort(endpointHost); err != nil && strings.Contains(err.Error(), "missing port in address") {
-			portFound = false
-		}
-		err = nil
-
-		host, port := mustSplitHostPort(endpointHost)
-		endpointHost = net.JoinHostPort(host, port)
-		if err = CheckLocalServerAddr(endpointHost); err != nil {
-			if err.Error() == "host in server address should be this server" {
-				return setup, fmt.Errorf("no endpoint found for this host")
-			}
-
-			return setup, err
-		}
-
-		if isServerAddrEmpty {
-			serverAddr = endpointHost
-		} else if portFound {
-			// As serverAddr is given, serverAddr and endpoint should have same port.
-			if serverAddrPort != port {
-				return setup, fmt.Errorf("server address and endpoint have different ports")
-			}
-		}
-
-		endpoints, _ = NewEndpointList(newArgs...)
-		return Setup{serverAddr, endpoints}, nil
+		return setup, fmt.Errorf("Path style arguments should be used for Singlenode Erasure setup")
 	}
 
 	isAllEndpointLocalHost := true
