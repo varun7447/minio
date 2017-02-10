@@ -24,53 +24,26 @@ import (
 	"github.com/minio/minio-go/pkg/set"
 )
 
-// SetupType - enum for setup type.
-type SetupType int
-
-const (
-	// FSSetupType - FS setup type enum.
-	FSSetupType SetupType = 1
-
-	// XLSetupType - XL setup type enum.
-	XLSetupType = 2
-
-	// DistXLSetupType - Distributed XL setup type enum.
-	DistXLSetupType = 3
-)
-
 // Setup - interface denotes any minio setup.
-type Setup interface {
-	ServerAddr() string
-	Endpoints() EndpointList
-	Type() SetupType
+type Setup struct {
+	ServerAddr string
+	Endpoints  []Endpoint
 }
 
-// FSSetup - minio FS setup.
-type FSSetup struct {
-	serverAddr string
-	endpoint   Endpoint
+func (s Setup) isFS() bool {
+	return len(s.Endpoints) == 1
 }
 
-// ServerAddr - returns server address.
-func (setup FSSetup) ServerAddr() string {
-	return setup.serverAddr
+func (s Setup) isXL() bool {
+	return len(s.Endpoints) > 1 && s.Endpoints[0].Type() == PathEndpointType
 }
 
-// Endpoints - creates and returns endpoint list.
-func (setup FSSetup) Endpoints() EndpointList {
-	var endpointList EndpointList
-	endpointList = append(endpointList, setup.endpoint)
-
-	return endpointList
-}
-
-// Type - returns type of the setup.
-func (setup FSSetup) Type() SetupType {
-	return FSSetupType
+func (s Setup) isDistXL() bool {
+	return len(s.Endpoints) > 1 && s.Endpoints[0].Type() == URLEndpointType
 }
 
 // NewFSSetup - creates new FS setup.
-func NewFSSetup(serverAddr, arg string) (setup FSSetup, err error) {
+func NewFSSetup(serverAddr, arg string) (setup Setup, err error) {
 	endpoint, err := NewEndpoint(arg)
 	if err != nil {
 		return setup, err
@@ -80,49 +53,7 @@ func NewFSSetup(serverAddr, arg string) (setup FSSetup, err error) {
 		return setup, fmt.Errorf("FS: Use Path style endpoint")
 	}
 
-	return FSSetup{serverAddr, endpoint}, nil
-}
-
-// XLSetup - minio XL setup.
-type XLSetup struct {
-	serverAddr string
-	endpoints  EndpointList
-}
-
-// ServerAddr - returns server address.
-func (setup XLSetup) ServerAddr() string {
-	return setup.serverAddr
-}
-
-// Endpoints - returns endpoint list.
-func (setup XLSetup) Endpoints() EndpointList {
-	return setup.endpoints
-}
-
-// Type - returns type of the setup.
-func (setup XLSetup) Type() SetupType {
-	return XLSetupType
-}
-
-// DistributeSetup - minio Distribute setup.
-type DistributeSetup struct {
-	serverAddr string
-	endpoints  EndpointList
-}
-
-// ServerAddr - returns server address.
-func (setup DistributeSetup) ServerAddr() string {
-	return setup.serverAddr
-}
-
-// Endpoints - returns endpoint list.
-func (setup DistributeSetup) Endpoints() EndpointList {
-	return setup.endpoints
-}
-
-// Type - returns type of the setup.
-func (setup DistributeSetup) Type() SetupType {
-	return DistXLSetupType
+	return Setup{serverAddr, []Endpoint{endpoint}}, nil
 }
 
 // NewSetup - creates new setup based on given args.
@@ -150,7 +81,7 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 
 	// Return XL setup when all endpoints are path style.
 	if endpoints[0].Type() == PathEndpointType {
-		return XLSetup{serverAddr, endpoints}, nil
+		return Setup{serverAddr, endpoints}, nil
 	}
 
 	// Here all endpoints are URL style.
@@ -217,7 +148,7 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 		}
 
 		endpoints, _ = NewEndpointList(newArgs...)
-		return XLSetup{serverAddr, endpoints}, nil
+		return Setup{serverAddr, endpoints}, nil
 	}
 
 	isAllEndpointLocalHost := true
@@ -258,7 +189,7 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 		// The actual way to do is bind to only IPs in uniqueLocalHosts.
 		endpoints, _ = NewEndpointList(newArgs...)
 		serverAddr = net.JoinHostPort("", localHostPort)
-		return XLSetup{serverAddr, endpoints}, nil
+		return Setup{serverAddr, endpoints}, nil
 	}
 
 	// This is Distribute setup.
@@ -299,5 +230,5 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 		}
 	}
 
-	return DistributeSetup{serverAddr, endpoints}, nil
+	return Setup{serverAddr, endpoints}, nil
 }

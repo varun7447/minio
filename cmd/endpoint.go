@@ -143,11 +143,8 @@ func NewEndpoint(arg string) (Endpoint, error) {
 	}, nil
 }
 
-// EndpointList - list of same type of endpoint.
-type EndpointList []Endpoint
-
 // NewEndpointList - returns new endpoint list based on input args.
-func NewEndpointList(args ...string) (endpoints EndpointList, err error) {
+func NewEndpointList(args ...string) (endpoints []Endpoint, err error) {
 	// Check whether given args contain duplicates.
 	if uniqueArgs := set.CreateStringSet(args...); len(uniqueArgs) != len(args) {
 		return nil, fmt.Errorf("duplicate endpoints found")

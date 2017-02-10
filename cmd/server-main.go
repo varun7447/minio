@@ -183,7 +183,7 @@ func serverMain(c *cli.Context) {
 	checkUpdate()
 
 	globalSetup = setup
-	globalMinioHost, globalMinioPort = mustSplitHostPort(setup.ServerAddr())
+	globalMinioHost, globalMinioPort = mustSplitHostPort(setup.ServerAddr)
 	if runtime.GOOS == "darwin" {
 		// On macOS, if a process already listens on 127.0.0.1:PORT, net.Listen() falls back
 		// to IPv6 address ie minio will start listening on IPv6 address whereas another
@@ -210,12 +210,12 @@ func serverMain(c *cli.Context) {
 	}
 
 	// Check if endpoints are part of distributed XL setup.
-	if globalSetup.Type() == DistXLSetupType {
+	if globalSetup.isDistXL() {
 		err = initDsyncNodes(endpoints)
 		fatalIf(err, "Unable to initialize distributed locking clients")
 		// TODO: remove globalIsDistXL
 		globalIsDistXL = true
-	} else if globalSetup.Type() == XLSetupType {
+	} else if globalSetup.isXL() {
 		// TODO: remove globalIsXL
 		globalIsXL = true
 	}
