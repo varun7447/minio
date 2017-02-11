@@ -151,7 +151,15 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 		host, port := mustSplitHostPort(uniqueLocalHosts[0])
 		// As serverAddr is given, serverAddr and endpoint should have same port.
 		if serverAddrPort != port {
-			return setup, fmt.Errorf("server address and endpoint have different ports")
+			return setup, fmt.Errorf(`port should be configued as "--address :port"`)
+		}
+		if serverAddrHost != "" && serverAddrHost != host {
+			return setup, fmt.Errorf("%s does not match with --address host:port", uniqueLocalHosts[0])
+		}
+		for _, endpoint := range endpoints {
+			if uniqueLocalHostSet.Contains(endpoint.URL.Host) {
+				endpoint.IsLocal = true
+			}
 		}
 	} else {
 		// If length of uniqueLocalHosts is more than one,
@@ -159,21 +167,19 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 
 		found := false
 		for _, host := range uniqueLocalHosts {
-			_, port := mustSplitHostPort(host)
-			if serverAddrPort == port {
-				found = true
-				break
+			if host == serverAddr {
+				for _, endpoint := range endpoints {
+					if found {
+						return setup, fmt.Errorf("--address host:port should match with only one endpoint")
+					}
+					endpoint.IsLocal = true
+					found = true
+				}
 			}
 		}
 
 		if !found {
-			return setup, fmt.Errorf("port in server address does not match with local endpoints")
-		}
-	}
-
-	for _, endpoint := range endpoints {
-		if uniqueLocalHostSet.Contains(endpoint.URL.Host) {
-			endpoint.IsLocal = true
+			return setup, fmt.Errorf("--address host:port should match with an endpoint")
 		}
 	}
 
