@@ -63,7 +63,6 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 		return setup, err
 	}
 
-	isServerAddrEmpty := (serverAddr == "")
 	// Normalize server address.
 	serverAddrHost, serverAddrPort := mustSplitHostPort(serverAddr)
 	serverAddr = net.JoinHostPort(serverAddrHost, serverAddrPort)
@@ -150,20 +149,13 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 	// This is Distribute setup.
 	if len(uniqueLocalHosts) == 1 {
 		host, port := mustSplitHostPort(uniqueLocalHosts[0])
-		if isServerAddrEmpty {
-			serverAddr = net.JoinHostPort(host, port)
-		} else {
-			// As serverAddr is given, serverAddr and endpoint should have same port.
-			if serverAddrPort != port {
-				return setup, fmt.Errorf("server address and endpoint have different ports")
-			}
+		// As serverAddr is given, serverAddr and endpoint should have same port.
+		if serverAddrPort != port {
+			return setup, fmt.Errorf("server address and endpoint have different ports")
 		}
 	} else {
 		// If length of uniqueLocalHosts is more than one,
 		// server address should be present with same port with the same or empty hostname.
-		if isServerAddrEmpty {
-			return setup, fmt.Errorf("for more than one endpoints for local host with different port, server address must be provided")
-		}
 
 		found := false
 		for _, host := range uniqueLocalHosts {
