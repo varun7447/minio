@@ -124,14 +124,12 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 		return setup, fmt.Errorf("Path style arguments should be used for Singlenode Erasure setup")
 	}
 
-	isAllEndpointLocalHost := true
-	localHostPort := ""
 	uniqueLocalHostSet := set.NewStringSet()
 	{
 		localIPs := mustGetLocalIP4()
 		// Check whether at least one local endpoint should be present.
-		for i, hostPort := range uniqueHosts {
-			host, port := mustSplitHostPort(hostPort)
+		for _, hostPort := range uniqueHosts {
+			host, _ := mustSplitHostPort(hostPort)
 			hostIPs, err := getHostIP4(host)
 			if err != nil {
 				return setup, err
@@ -139,13 +137,6 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 
 			if !localIPs.Intersection(hostIPs).IsEmpty() {
 				uniqueLocalHostSet.Add(hostPort)
-				if i == 0 {
-					localHostPort = port
-				} else if localHostPort != port {
-					isAllEndpointLocalHost = false
-				}
-			} else {
-				isAllEndpointLocalHost = false
 			}
 		}
 	}
@@ -154,15 +145,6 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 	// Error out if no endpoint for this server.
 	if len(uniqueLocalHosts) == 0 {
 		return setup, fmt.Errorf("no endpoint found for this host")
-	}
-
-	// If isAllSameLocalHost is true, then the setup is XL.
-	if isAllEndpointLocalHost {
-		// TODO: In this case, we bind to 0.0.0.0 ie to all interfaces.
-		// The actual way to do is bind to only IPs in uniqueLocalHosts.
-		endpoints, _ = NewEndpointList(serverAddrPort, newArgs...)
-		serverAddr = net.JoinHostPort("", localHostPort)
-		return Setup{serverAddr, endpoints}, nil
 	}
 
 	// This is Distribute setup.
