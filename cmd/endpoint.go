@@ -109,7 +109,7 @@ func (endpoint Endpoint) Type() EndpointType {
 }
 
 // NewEndpoint - returns new endpoint based on given arguments.
-func NewEndpoint(arg string) (Endpoint, error) {
+func NewEndpoint(port string, arg string) (Endpoint, error) {
 	if IsEmptyPath(arg) {
 		return Endpoint{}, fmt.Errorf("Empty or root endpoint is not supported")
 	}
@@ -122,7 +122,7 @@ func NewEndpoint(arg string) (Endpoint, error) {
 			return Endpoint{}, fmt.Errorf("Unknown endpoint format")
 		}
 
-		host, port, err := splitHostPort(u.Host)
+		host, port, err := splitHostPort(u.Host, port)
 		if !(err == nil && host != "") {
 			return Endpoint{}, fmt.Errorf("Invalid host in endpoint format")
 		}
@@ -144,7 +144,7 @@ func NewEndpoint(arg string) (Endpoint, error) {
 }
 
 // NewEndpointList - returns new endpoint list based on input args.
-func NewEndpointList(args ...string) (endpoints []Endpoint, err error) {
+func NewEndpointList(port string, args ...string) (endpoints []Endpoint, err error) {
 	// Check whether given args contain duplicates.
 	if uniqueArgs := set.CreateStringSet(args...); len(uniqueArgs) != len(args) {
 		return nil, fmt.Errorf("duplicate endpoints found")
@@ -162,7 +162,7 @@ func NewEndpointList(args ...string) (endpoints []Endpoint, err error) {
 
 	// Loop through args and adds to endpoint list.
 	for i, arg := range args {
-		endpoint, err := NewEndpoint(arg)
+		endpoint, err := NewEndpoint(port, arg)
 		if err != nil {
 			return nil, fmt.Errorf("unknown endpoint format %s", arg)
 		}

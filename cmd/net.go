@@ -29,7 +29,7 @@ const defaultPort = "9000"
 
 // splitHostPort is wrapper to net.SplitHostPort(), but ignores "missing port in address".
 // If port is missing, default port "9000" is returned.
-func splitHostPort(hostPort string) (host, port string, err error) {
+func splitHostPort(hostPort string, overridePort string) (host, port string, err error) {
 	host, port, err = net.SplitHostPort(hostPort)
 	if err != nil {
 		// Ignore "missing port in address" error as we use default port.
@@ -39,7 +39,7 @@ func splitHostPort(hostPort string) (host, port string, err error) {
 		}
 
 		host = hostPort
-		port = defaultPort
+		port = overridePort
 		err = nil
 	}
 
@@ -54,11 +54,14 @@ func splitHostPort(hostPort string) (host, port string, err error) {
 }
 
 func mustSplitHostPort(hostPort string) (host, port string) {
-	host, port, err := splitHostPort(hostPort)
+	dummyPort := "0"
+	host, port, err := splitHostPort(hostPort, dummyPort)
 	if err != nil {
 		fatalIf(err, "Unable to split host port %s", hostPort)
 	}
-
+	if port == "0" {
+		fatalIf(fmt.Errorf("invalid host:port"), "%s needs to have a valid port", hostPort)
+	}
 	return host, port
 }
 

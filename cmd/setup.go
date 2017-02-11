@@ -43,7 +43,8 @@ func (s Setup) isDistXL() bool {
 
 // NewFSSetup - creates new FS setup.
 func NewFSSetup(serverAddr, arg string) (setup Setup, err error) {
-	endpoint, err := NewEndpoint(arg)
+	_, port := mustSplitHostPort(serverAddr)
+	endpoint, err := NewEndpoint(port, port)
 	if err != nil {
 		return setup, err
 	}
@@ -73,7 +74,7 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 	}
 
 	// Convert args to endpoints
-	endpoints, err := NewEndpointList(args...)
+	endpoints, err := NewEndpointList(serverAddrPort, args...)
 	if err != nil {
 		return setup, err
 	}
@@ -159,7 +160,7 @@ func NewSetup(serverAddr string, args ...string) (setup Setup, err error) {
 	if isAllEndpointLocalHost {
 		// TODO: In this case, we bind to 0.0.0.0 ie to all interfaces.
 		// The actual way to do is bind to only IPs in uniqueLocalHosts.
-		endpoints, _ = NewEndpointList(newArgs...)
+		endpoints, _ = NewEndpointList(serverAddrPort, newArgs...)
 		serverAddr = net.JoinHostPort("", localHostPort)
 		return Setup{serverAddr, endpoints}, nil
 	}
