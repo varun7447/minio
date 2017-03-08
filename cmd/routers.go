@@ -29,6 +29,15 @@ func newObjectLayerFn() (layer ObjectLayer) {
 	return
 }
 
+func newHealLayerFn() (layer HealLayer) {
+	globalObjLayerMutex.RLock()
+	defer globalObjLayerMutex.RUnlock()
+	if xl, ok := globalObjectAPI.(*xlObjects); ok {
+		layer = xl
+	}
+	return
+}
+
 // Composed function registering routers for only distributed XL setup.
 func registerDistXLRouters(mux *router.Router, srvCmdConfig serverCmdConfig) error {
 	// Register storage rpc router only if its a distributed setup.

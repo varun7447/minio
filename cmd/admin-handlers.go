@@ -439,7 +439,7 @@ func validateHealQueryParams(vars url.Values) (string, string, string, string, i
 // List upto maxKey objects that need healing in a given bucket matching the given prefix.
 func (adminAPI adminAPIHandlers) ListObjectsHealHandler(w http.ResponseWriter, r *http.Request) {
 	// Get object layer instance.
-	objLayer := newObjectLayerFn()
+	objLayer := newHealLayerFn()
 	if objLayer == nil {
 		writeErrorResponse(w, ErrServerNotInitialized, r.URL)
 		return
@@ -475,7 +475,7 @@ func (adminAPI adminAPIHandlers) ListObjectsHealHandler(w http.ResponseWriter, r
 // ListBucketsHealHandler - GET /?heal
 func (adminAPI adminAPIHandlers) ListBucketsHealHandler(w http.ResponseWriter, r *http.Request) {
 	// Get object layer instance.
-	objLayer := newObjectLayerFn()
+	objLayer := newHealLayerFn()
 	if objLayer == nil {
 		writeErrorResponse(w, ErrServerNotInitialized, r.URL)
 		return
@@ -506,7 +506,7 @@ func (adminAPI adminAPIHandlers) ListBucketsHealHandler(w http.ResponseWriter, r
 // Heal a given bucket, if present.
 func (adminAPI adminAPIHandlers) HealBucketHandler(w http.ResponseWriter, r *http.Request) {
 	// Get object layer instance.
-	objLayer := newObjectLayerFn()
+	objLayer := newHealLayerFn()
 	if objLayer == nil {
 		writeErrorResponse(w, ErrServerNotInitialized, r.URL)
 		return
@@ -522,10 +522,6 @@ func (adminAPI adminAPIHandlers) HealBucketHandler(w http.ResponseWriter, r *htt
 	// Validate bucket name and check if it exists.
 	vars := r.URL.Query()
 	bucket := vars.Get(string(mgmtBucket))
-	if err := checkBucketExist(bucket, objLayer); err != nil {
-		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
-		return
-	}
 
 	// if dry-run is present in query-params, then only perform validations and return success.
 	if isDryRun(vars) {
@@ -559,7 +555,7 @@ func isDryRun(qval url.Values) bool {
 // Heal a given object, if present.
 func (adminAPI adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *http.Request) {
 	// Get object layer instance.
-	objLayer := newObjectLayerFn()
+	objLayer := newHealLayerFn()
 	if objLayer == nil {
 		writeErrorResponse(w, ErrServerNotInitialized, r.URL)
 		return
@@ -578,12 +574,6 @@ func (adminAPI adminAPIHandlers) HealObjectHandler(w http.ResponseWriter, r *htt
 
 	// Validate bucket and object names.
 	if err := checkBucketAndObjectNames(bucket, object); err != nil {
-		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
-		return
-	}
-
-	// Check if object exists.
-	if _, err := objLayer.GetObjectInfo(bucket, object); err != nil {
 		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
 		return
 	}

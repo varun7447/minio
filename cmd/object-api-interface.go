@@ -18,11 +18,19 @@ package cmd
 
 import "io"
 
+type HealLayer interface {
+	// Healing operations.
+	HealBucket(bucket string) error
+	ListBucketsHeal() (buckets []BucketInfo, err error)
+	HealObject(bucket, object string) error
+	ListObjectsHeal(bucket, prefix, marker, delimiter string, maxKeys int) (ListObjectsInfo, error)
+}
+
 // ObjectLayer implements primitives for object API layer.
 type ObjectLayer interface {
 	// Storage operations.
-	Shutdown() error
 	StorageInfo() StorageInfo
+	Shutdown() error
 
 	// Bucket operations.
 	MakeBucket(bucket string) error
@@ -46,10 +54,4 @@ type ObjectLayer interface {
 	ListObjectParts(bucket, object, uploadID string, partNumberMarker int, maxParts int) (result ListPartsInfo, err error)
 	AbortMultipartUpload(bucket, object, uploadID string) error
 	CompleteMultipartUpload(bucket, object, uploadID string, uploadedParts []completePart) (objInfo ObjectInfo, err error)
-
-	// Healing operations.
-	HealBucket(bucket string) error
-	ListBucketsHeal() (buckets []BucketInfo, err error)
-	HealObject(bucket, object string) error
-	ListObjectsHeal(bucket, prefix, marker, delimiter string, maxKeys int) (ListObjectsInfo, error)
 }
