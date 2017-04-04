@@ -142,7 +142,7 @@ func TestExtractSignedHeaders(t *testing.T) {
 	expectedTime := UTCNow().Format(iso8601Format)
 	expectedTransferEncoding := "gzip"
 
-	r, err := http.NewRequest("GET", "http://localhost", nil)
+	r, err := http.NewRequest("GET", "http://play.minio.io:9000", nil)
 	if err != nil {
 		t.Fatal("Unable to create http.Request :", err)
 	}
