@@ -132,10 +132,8 @@ func TestGetURLEncodedName(t *testing.T) {
 
 // TestExtractSignedHeaders - Tests validate extraction of signed headers using list of signed header keys.
 func TestExtractSignedHeaders(t *testing.T) {
-	signedHeaders := []string{"host", "x-amz-content-sha256", "x-amz-date", "transfer-encoding"}
+	signedHeaders := []string{"expect", "host", "x-amz-content-sha256", "x-amz-date", "transfer-encoding"}
 
-	// If the `expect` key exists in the signed headers then golang server would have stripped out the value, expecting the `expect` header set to `100-continue` in the result.
-	signedHeaders = append(signedHeaders, "expect")
 	// expected header values.
 	expectedHost := "play.minio.io:9000"
 	expectedContentSha256 := "1234abcd"
