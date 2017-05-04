@@ -432,20 +432,27 @@ export const setLoginError = () => {
 
 export const downloadSelected = (url, req, xhr) => {
   return (dispatch) => {
-    xhr.open('POST', url, true)
-    xhr.responseType = 'blob'
+    fetch(url, {
+      method: 'GET',
+      body: JSON.stringify(req)
+    }).then(res => {
+      dispatch(checkedObjectsReset())
+      FileSaver.saveAs(res.blob(), 'file.zip')
+    })
+    // xhr.open('POST', url, true)
+    // xhr.responseType = 'blob'
 
-    xhr.onload = function(e) {
-      if (this.status == 200) {
-        dispatch(checkedObjectsReset())
-        var blob = new Blob([this.response], {
-          type: 'application/zip'
-        })
-        var blobUrl = window.URL.createObjectURL(blob);
-        window.location = blobUrl
-      }
-    };
-    xhr.send(JSON.stringify(req));
+    // xhr.onload = function(e) {
+    //   if (this.status == 200) {
+    //     dispatch(checkedObjectsReset())
+    //     var blob = new Blob([this.response], {
+    //       type: 'application/zip'
+    //     })
+    //     var blobUrl = window.URL.createObjectURL(blob);
+    //     window.location = blobUrl
+    //   }
+    // };
+    // xhr.send(JSON.stringify(req));
   }
 }
 
