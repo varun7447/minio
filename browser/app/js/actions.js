@@ -17,6 +17,7 @@
 import Moment from 'moment'
 import browserHistory from 'react-router/lib/browserHistory'
 import storage from 'local-storage-fallback'
+import FileSaver from 'file-saver'
 import { minioBrowserPrefix } from './constants'
 
 export const SET_WEB = 'SET_WEB'
@@ -431,13 +432,16 @@ export const setLoginError = () => {
 }
 
 export const downloadSelected = (url, req, xhr) => {
+  console.log(FileSaver)
   return (dispatch) => {
     fetch(url, {
-      method: 'GET',
+      method: 'POST',
       body: JSON.stringify(req)
-    }).then(res => {
+    }).then(res => res.blob())
+      .then(myBlob => {
+      console.log(myBlob)
       dispatch(checkedObjectsReset())
-      FileSaver.saveAs(res.blob(), 'file.zip')
+      FileSaver.saveAs(myBlob, 'file.zip')
     })
     // xhr.open('POST', url, true)
     // xhr.responseType = 'blob'
