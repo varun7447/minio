@@ -56,6 +56,10 @@ const (
 	// token prefixed with GCS returned marker to differentiate
 	// from user supplied marker.
 	gcsTokenPrefix = "##minio"
+
+	// maxComponents - maximum component object count to create a composite object.
+	// Refer https://cloud.google.com/storage/docs/composite-objects
+	maxComponents = 32
 )
 
 // Stored in gcs.json - Contents of this file is not used anywhere. It can be
@@ -899,12 +903,32 @@ func (l *gcsGateway) CompleteMultipartUpload(bucket string, key string, uploadID
 		parts[i] = l.client.Bucket(bucket).Object(gcsMultipartDataName(uploadID, uploadedPart.ETag))
 	}
 
-	if len(parts) > 32 {
-		// we need to split up the compose of more than 32 parts
-		// into subcomposes. This means that the first 32 parts will
-		// compose to a composed-object-0, next parts to composed-object-1,
-		// the final compose will compose composed-object* to 1.
-		return ObjectInfo{}, traceError(NotSupported{})
+	if len(parts) > maxComponents {
+		var subcomposeParts []*storage.ObjectHandle
+		for i := 0; ; i++ {
+			// Create 'composed-object-N' using next 32 parts.
+			subcomposeName := fmt.Sprintf("composed-object-%d-%d", level, i)
+			subcomposePart = l.client.Bucket(bucket).Object(gcsMultipartDataName(uploadID, subcomposeName))
+
+			start := i * maxComponents
+			end := start + maxComponents
+			if end > len(parts) {
+				end = len(parts)
+			}
+
+			composer := subcomposeParts.ComposerFrom(parts[start:end]...)
+			_, err = composer.Run(l.ctx)
+			if err != nil {
+				return ObjectInfo{}, gcsToObjectError(traceError(err), bucket, key)
+			}
+			subcomposeParts = append(subcomposeParts, subcomposePart)
+			if end == len(parts) {
+				break
+			}
+		}
+
+		// As subcomposes are successfully created, final object needs to be created using subcomposes.
+		parts = subcomposeParts
 	}
 
 	dst := l.client.Bucket(bucket).Object(key)
