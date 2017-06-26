@@ -55,7 +55,8 @@ const (
 	gcsMultipartMetaCurrentVersion = "1"
 	// token prefixed with GCS returned marker to differentiate
 	// from user supplied marker.
-	gcsTokenPrefix = "##minio"
+	gcsTokenPrefix       = "##minio"
+	gcsObjectsPerCompose = 32
 )
 
 // Stored in gcs.json - Contents of this file is not used anywhere. It can be
@@ -894,22 +895,33 @@ func (l *gcsGateway) CompleteMultipartUpload(bucket string, key string, uploadID
 		return ObjectInfo{}, gcsToObjectError(traceError(errFormatNotSupported), bucket, key)
 	}
 
-	parts := make([]*storage.ObjectHandle, len(uploadedParts))
-	for i, uploadedPart := range uploadedParts {
-		parts[i] = l.client.Bucket(bucket).Object(gcsMultipartDataName(uploadID, uploadedPart.ETag))
-	}
-
-	if len(parts) > 32 {
-		// we need to split up the compose of more than 32 parts
-		// into subcomposes. This means that the first 32 parts will
-		// compose to a composed-object-0, next parts to composed-object-1,
-		// the final compose will compose composed-object* to 1.
-		return ObjectInfo{}, traceError(NotSupported{})
+	var level1Parts, level2Parts []*storage.ObjectHandle
+	// For ex. if we have 64 parts in total, we create 2 level1Parts consisting each of 32 parts.
+	// i.e level1Parts_1 = [part1, part2, ..., part32] level1Parts_2 = [part33, part34, ..., part64]
+	// and then level2Parts = [compose(level1Parts_1), compose(level1Parts_2)]
+	// and then finally create the object i.e compose(level2Parts)
+	for i, part := range uploadedParts {
+		level1Parts = append(level1Parts, l.client.Bucket(bucket).Object(gcsMultipartDataName(uploadID, part.ETag)))
+		if (i%(gcsObjectsPerCompose-1)) == 0 || i == (len(uploadedParts)-1) {
+			// If we have accumulated 32 parts OR if this is the last batch of level1 parts
+			if len(uploadedParts) <= gcsObjectsPerCompose {
+				level2Parts = level1Parts
+				break
+			}
+			level2Part := l.client.Bucket(bucket).Object(gcsMultipartDataName(uploadID, mustGetUUID()))
+			composer := level2Part.ComposerFrom(level1Parts...)
+			_, err = composer.Run(l.ctx)
+			if err != nil {
+				return ObjectInfo{}, gcsToObjectError(traceError(err), bucket, key)
+			}
+			level2Parts = append(level2Parts, level2Part)
+			level1Parts = nil
+		}
 	}
 
 	dst := l.client.Bucket(bucket).Object(key)
 
-	composer := dst.ComposerFrom(parts...)
+	composer := dst.ComposerFrom(level2Parts...)
 
 	composer.ContentType = partZeroAttrs.ContentType
 	composer.Metadata = partZeroAttrs.Metadata
