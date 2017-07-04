@@ -17,10 +17,7 @@
 package cmd
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
-	"hash"
 	"io"
 	"io/ioutil"
 	"os"
@@ -30,7 +27,6 @@ import (
 	"syscall"
 
 	"github.com/minio/minio/pkg/lock"
-	"github.com/minio/sha256-simd"
 )
 
 // fsObjects - Implements fs object layer.
@@ -562,26 +558,41 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 	tempObj := mustGetUUID()
 
 	// Initialize md5 writer.
-	md5Writer := md5.New()
+	// md5Writer := md5.New()
 
-	hashWriters := []io.Writer{md5Writer}
+	// hashWriters := []io.Writer{md5Writer}
 
-	var sha256Writer hash.Hash
-	if sha256sum != "" {
-		sha256Writer = sha256.New()
-		hashWriters = append(hashWriters, sha256Writer)
-	}
-	multiWriter := io.MultiWriter(hashWriters...)
+	// var sha256Writer hash.Hash
+	// if sha256sum != "" {
+	// 	sha256Writer = sha256.New()
+	// 	hashWriters = append(hashWriters, sha256Writer)
+	// }
+	// multiWriter := io.MultiWriter(hashWriters...)
 
-	// Limit the reader to its provided size if specified.
-	var limitDataReader io.Reader
-	if size > 0 {
-		// This is done so that we can avoid erroneous clients sending more data than the set content size.
-		limitDataReader = io.LimitReader(data, size)
-	} else {
-		// else we read till EOF.
-		limitDataReader = data
-	}
+	// // Limit the reader to its provided size if specified.
+	// var limitDataReader io.Reader
+	// if size > 0 {
+	// 	// This is done so that we can avoid erroneous clients sending more data than the set content size.
+	// 	limitDataReader = io.LimitReader(data, size)
+	// } else {
+	// 	// else we read till EOF.
+	// 	limitDataReader = data
+	// }
+
+	// // Allocate a buffer to Read() from request body
+	// bufSize := int64(readSizeV1)
+	// if size > 0 && bufSize > size {
+	// 	bufSize = size
+	// }
+	// buf := make([]byte, int(bufSize))
+	// teeReader := io.TeeReader(limitDataReader, multiWriter)
+	// fsTmpObjPath := pathJoin(fs.fsPath, minioMetaTmpBucket, fs.fsUUID, tempObj)
+	// bytesWritten, err := fsCreateFile(fsTmpObjPath, teeReader, buf, size)
+	// if err != nil {
+	// 	fsRemoveFile(fsTmpObjPath)
+	// 	errorIf(err, "Failed to create object %s/%s", bucket, object)
+	// 	return ObjectInfo{}, toObjectErr(err, bucket, object)
+	// }
 
 	// Allocate a buffer to Read() from request body
 	bufSize := int64(readSizeV1)
@@ -589,9 +600,8 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 		bufSize = size
 	}
 	buf := make([]byte, int(bufSize))
-	teeReader := io.TeeReader(limitDataReader, multiWriter)
 	fsTmpObjPath := pathJoin(fs.fsPath, minioMetaTmpBucket, fs.fsUUID, tempObj)
-	bytesWritten, err := fsCreateFile(fsTmpObjPath, teeReader, buf, size)
+	bytesWritten, err := fsCreateFile(fsTmpObjPath, data, buf, size)
 	if err != nil {
 		fsRemoveFile(fsTmpObjPath)
 		errorIf(err, "Failed to create object %s/%s", bucket, object)
@@ -610,27 +620,27 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 	// nothing to delete.
 	defer fsRemoveFile(fsTmpObjPath)
 
-	newMD5Hex := hex.EncodeToString(md5Writer.Sum(nil))
-	// Update the md5sum if not set with the newly calculated one.
-	if len(metadata["etag"]) == 0 {
-		metadata["etag"] = newMD5Hex
-	}
+	// newMD5Hex := hex.EncodeToString(md5Writer.Sum(nil))
+	// // Update the md5sum if not set with the newly calculated one.
+	// if len(metadata["etag"]) == 0 {
+	// 	metadata["etag"] = newMD5Hex
+	// }
 
-	// md5Hex representation.
-	md5Hex := metadata["etag"]
-	if md5Hex != "" {
-		if newMD5Hex != md5Hex {
-			// Returns md5 mismatch.
-			return ObjectInfo{}, traceError(BadDigest{md5Hex, newMD5Hex})
-		}
-	}
+	// // md5Hex representation.
+	// md5Hex := metadata["etag"]
+	// if md5Hex != "" {
+	// 	if newMD5Hex != md5Hex {
+	// 		// Returns md5 mismatch.
+	// 		return ObjectInfo{}, traceError(BadDigest{md5Hex, newMD5Hex})
+	// 	}
+	// }
 
-	if sha256sum != "" {
-		newSHA256sum := hex.EncodeToString(sha256Writer.Sum(nil))
-		if newSHA256sum != sha256sum {
-			return ObjectInfo{}, traceError(SHA256Mismatch{})
-		}
-	}
+	// if sha256sum != "" {
+	// 	newSHA256sum := hex.EncodeToString(sha256Writer.Sum(nil))
+	// 	if newSHA256sum != sha256sum {
+	// 		return ObjectInfo{}, traceError(SHA256Mismatch{})
+	// 	}
+	// }
 
 	// Entire object was written to the temp location, now it's safe to rename it to the actual location.
 	fsNSObjPath := pathJoin(fs.fsPath, bucket, object)
