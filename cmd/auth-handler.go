@@ -146,7 +146,19 @@ func reqSignatureV4Verify(r *http.Request, region string) (s3Error APIErrorCode)
 	sha256sum := getContentSha256Cksum(r)
 	switch {
 	case isRequestSignatureV4(r):
-		return doesSignatureMatch(sha256sum, r, region)
+		apiErr := doesSignatureMatch(sha256sum, r, region)
+		if apiErr == ErrNone {
+			return ErrNone
+		}
+		payload, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			errorIf(err, "Unable to read request body for signature verification")
+			return ErrInternalError
+		}
+
+		// Populate back the payload.
+		r.Body = ioutil.NopCloser(bytes.NewReader(payload))
+		return doesSignatureMatch(getSHA256Hash(payload), r, region)
 	case isRequestPresignedSignatureV4(r):
 		return doesPresignedSignatureMatch(sha256sum, r, region)
 	default:
