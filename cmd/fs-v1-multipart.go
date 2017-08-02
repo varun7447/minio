@@ -759,13 +759,13 @@ func (fs fsObjects) CompleteMultipartUpload(bucket string, object string, upload
 
 	// Wait for any competing PutObject() operation on bucket/object, since same namespace
 	// would be acquired for `fs.json`.
-	fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, object, fsMetaJSONFile)
-	metaFile, err := fs.rwPool.Create(fsMetaPath)
-	if err != nil {
-		fs.rwPool.Close(fsMetaPathMultipart)
-		return oi, toObjectErr(traceError(err), bucket, object)
-	}
-	defer metaFile.Close()
+	// fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, object, fsMetaJSONFile)
+	// metaFile, err := fs.rwPool.Create(fsMetaPath)
+	// if err != nil {
+	// 	fs.rwPool.Close(fsMetaPathMultipart)
+	// 	return oi, toObjectErr(traceError(err), bucket, object)
+	// }
+	// defer metaFile.Close()
 
 	fsNSObjPath := pathJoin(fs.fsPath, bucket, object)
 
@@ -873,11 +873,11 @@ func (fs fsObjects) CompleteMultipartUpload(bucket string, object string, upload
 	}
 	fsMeta.Meta["etag"] = s3MD5
 
-	// Write all the set metadata.
-	if _, err = fsMeta.WriteTo(metaFile); err != nil {
-		fs.rwPool.Close(fsMetaPathMultipart)
-		return oi, toObjectErr(err, bucket, object)
-	}
+	// // Write all the set metadata.
+	// if _, err = fsMeta.WriteTo(metaFile); err != nil {
+	// 	fs.rwPool.Close(fsMetaPathMultipart)
+	// 	return oi, toObjectErr(err, bucket, object)
+	// }
 
 	// Close lock held on bucket/object/uploadid/fs.json,
 	// this needs to be done for windows so that we can happily

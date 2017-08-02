@@ -19,7 +19,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -386,14 +385,14 @@ func (fs fsObjects) GetObject(bucket, object string, offset int64, length int64,
 		return toObjectErr(traceError(errUnexpected), bucket, object)
 	}
 
-	if bucket != minioMetaBucket {
-		fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, object, fsMetaJSONFile)
-		_, err = fs.rwPool.Open(fsMetaPath)
-		if err != nil && err != errFileNotFound {
-			return toObjectErr(traceError(err), bucket, object)
-		}
-		defer fs.rwPool.Close(fsMetaPath)
-	}
+	// if bucket != minioMetaBucket {
+	// 	fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, object, fsMetaJSONFile)
+	// 	_, err = fs.rwPool.Open(fsMetaPath)
+	// 	if err != nil && err != errFileNotFound {
+	// 		return toObjectErr(traceError(err), bucket, object)
+	// 	}
+	// 	defer fs.rwPool.Close(fsMetaPath)
+	// }
 
 	// Read the object, doesn't exist returns an s3 compatible error.
 	fsObjPath := pathJoin(fs.fsPath, bucket, object)
@@ -429,28 +428,28 @@ func (fs fsObjects) GetObject(bucket, object string, offset int64, length int64,
 // getObjectInfo - wrapper for reading object metadata and constructs ObjectInfo.
 func (fs fsObjects) getObjectInfo(bucket, object string) (oi ObjectInfo, e error) {
 	fsMeta := fsMetaV1{}
-	fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, object, fsMetaJSONFile)
+	// fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, object, fsMetaJSONFile)
 
-	// Read `fs.json` to perhaps contend with
-	// parallel Put() operations.
-	rlk, err := fs.rwPool.Open(fsMetaPath)
-	if err == nil {
-		// Read from fs metadata only if it exists.
-		defer fs.rwPool.Close(fsMetaPath)
-		if _, rerr := fsMeta.ReadFrom(rlk.LockedFile); rerr != nil {
-			// `fs.json` can be empty due to previously failed
-			// PutObject() transaction, if we arrive at such
-			// a situation we just ignore and continue.
-			if errorCause(rerr) != io.EOF {
-				return oi, toObjectErr(rerr, bucket, object)
-			}
-		}
-	}
+	// // Read `fs.json` to perhaps contend with
+	// // parallel Put() operations.
+	// rlk, err := fs.rwPool.Open(fsMetaPath)
+	// if err == nil {
+	// 	// Read from fs metadata only if it exists.
+	// 	defer fs.rwPool.Close(fsMetaPath)
+	// 	if _, rerr := fsMeta.ReadFrom(rlk.LockedFile); rerr != nil {
+	// 		// `fs.json` can be empty due to previously failed
+	// 		// PutObject() transaction, if we arrive at such
+	// 		// a situation we just ignore and continue.
+	// 		if errorCause(rerr) != io.EOF {
+	// 			return oi, toObjectErr(rerr, bucket, object)
+	// 		}
+	// 	}
+	// }
 
-	// Ignore if `fs.json` is not available, this is true for pre-existing data.
-	if err != nil && err != errFileNotFound {
-		return oi, toObjectErr(traceError(err), bucket, object)
-	}
+	// // Ignore if `fs.json` is not available, this is true for pre-existing data.
+	// if err != nil && err != errFileNotFound {
+	// 	return oi, toObjectErr(traceError(err), bucket, object)
+	// }
 
 	// Stat the file to get file size.
 	fi, err := fsStatFile(pathJoin(fs.fsPath, bucket, object))
@@ -533,24 +532,24 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 	fsMeta := newFSMetaV1()
 	fsMeta.Meta = metadata
 
-	var wlk *lock.LockedFile
-	if bucket != minioMetaBucket {
-		bucketMetaDir := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix)
-		fsMetaPath := pathJoin(bucketMetaDir, bucket, object, fsMetaJSONFile)
-		wlk, err = fs.rwPool.Create(fsMetaPath)
-		if err != nil {
-			return ObjectInfo{}, toObjectErr(traceError(err), bucket, object)
-		}
-		// This close will allow for locks to be synchronized on `fs.json`.
-		defer wlk.Close()
-		defer func() {
-			// Remove meta file when PutObject encounters any error
-			if retErr != nil {
-				tmpDir := pathJoin(fs.fsPath, minioMetaTmpBucket, fs.fsUUID)
-				fsRemoveMeta(bucketMetaDir, fsMetaPath, tmpDir)
-			}
-		}()
-	}
+	// var wlk *lock.LockedFile
+	// if bucket != minioMetaBucket {
+	// 	bucketMetaDir := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix)
+	// 	fsMetaPath := pathJoin(bucketMetaDir, bucket, object, fsMetaJSONFile)
+	// 	wlk, err = fs.rwPool.Create(fsMetaPath)
+	// 	if err != nil {
+	// 		return ObjectInfo{}, toObjectErr(traceError(err), bucket, object)
+	// 	}
+	// 	// This close will allow for locks to be synchronized on `fs.json`.
+	// 	defer wlk.Close()
+	// 	defer func() {
+	// 		// Remove meta file when PutObject encounters any error
+	// 		if retErr != nil {
+	// 			tmpDir := pathJoin(fs.fsPath, minioMetaTmpBucket, fs.fsUUID)
+	// 			fsRemoveMeta(bucketMetaDir, fsMetaPath, tmpDir)
+	// 		}
+	// 	}()
+	// }
 
 	// Uploaded object will first be written to the temporary location which will eventually
 	// be renamed to the actual location. It is first written to the temporary location
@@ -648,12 +647,12 @@ func (fs fsObjects) PutObject(bucket string, object string, size int64, data io.
 		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
 
-	if bucket != minioMetaBucket {
-		// Write FS metadata after a successful namespace operation.
-		if _, err = fsMeta.WriteTo(wlk); err != nil {
-			return ObjectInfo{}, toObjectErr(err, bucket, object)
-		}
-	}
+	// if bucket != minioMetaBucket {
+	// 	// Write FS metadata after a successful namespace operation.
+	// 	if _, err = fsMeta.WriteTo(wlk); err != nil {
+	// 		return ObjectInfo{}, toObjectErr(err, bucket, object)
+	// 	}
+	// }
 
 	// Stat the file to fetch timestamp, size.
 	fi, err := fsStatFile(pathJoin(fs.fsPath, bucket, object))
@@ -731,40 +730,41 @@ func (fs fsObjects) listDirFactory(isLeaf isLeafFunc) listDirFunc {
 // getObjectETag is a helper function, which returns only the md5sum
 // of the file on the disk.
 func (fs fsObjects) getObjectETag(bucket, entry string) (string, error) {
-	fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, entry, fsMetaJSONFile)
+	return "", nil
+	// fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, entry, fsMetaJSONFile)
 
-	// Read `fs.json` to perhaps contend with
-	// parallel Put() operations.
-	rlk, err := fs.rwPool.Open(fsMetaPath)
-	// Ignore if `fs.json` is not available, this is true for pre-existing data.
-	if err != nil && err != errFileNotFound {
-		return "", toObjectErr(traceError(err), bucket, entry)
-	}
+	// // Read `fs.json` to perhaps contend with
+	// // parallel Put() operations.
+	// rlk, err := fs.rwPool.Open(fsMetaPath)
+	// // Ignore if `fs.json` is not available, this is true for pre-existing data.
+	// if err != nil && err != errFileNotFound {
+	// 	return "", toObjectErr(traceError(err), bucket, entry)
+	// }
 
-	// If file is not found, we don't need to proceed forward.
-	if err == errFileNotFound {
-		return "", nil
-	}
+	// // If file is not found, we don't need to proceed forward.
+	// if err == errFileNotFound {
+	// 	return "", nil
+	// }
 
-	// Read from fs metadata only if it exists.
-	defer fs.rwPool.Close(fsMetaPath)
+	// // Read from fs metadata only if it exists.
+	// defer fs.rwPool.Close(fsMetaPath)
 
-	fsMetaBuf, err := ioutil.ReadAll(rlk.LockedFile)
-	if err != nil {
-		// `fs.json` can be empty due to previously failed
-		// PutObject() transaction, if we arrive at such
-		// a situation we just ignore and continue.
-		if errorCause(err) != io.EOF {
-			return "", toObjectErr(err, bucket, entry)
-		}
-	}
+	// fsMetaBuf, err := ioutil.ReadAll(rlk.LockedFile)
+	// if err != nil {
+	// 	// `fs.json` can be empty due to previously failed
+	// 	// PutObject() transaction, if we arrive at such
+	// 	// a situation we just ignore and continue.
+	// 	if errorCause(err) != io.EOF {
+	// 		return "", toObjectErr(err, bucket, entry)
+	// 	}
+	// }
 
-	// Check if FS metadata is valid, if not return error.
-	if !isFSMetaValid(parseFSVersion(fsMetaBuf), parseFSFormat(fsMetaBuf)) {
-		return "", toObjectErr(traceError(errCorruptedFormat), bucket, entry)
-	}
+	// // Check if FS metadata is valid, if not return error.
+	// if !isFSMetaValid(parseFSVersion(fsMetaBuf), parseFSFormat(fsMetaBuf)) {
+	// 	return "", toObjectErr(traceError(errCorruptedFormat), bucket, entry)
+	// }
 
-	return extractETag(parseFSMetaMap(fsMetaBuf)), nil
+	// return extractETag(parseFSMetaMap(fsMetaBuf)), nil
 }
 
 // ListObjects - list all objects at prefix upto maxKeys., optionally delimited by '/'. Maintains the list pool
