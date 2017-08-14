@@ -983,7 +983,7 @@ func (adminAPI adminAPIHandlers) SetConfigHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	var config serverConfigV19
+	var config serverConfigV20
 	err = json.Unmarshal(configBytes, &config)
 
 	if err != nil {

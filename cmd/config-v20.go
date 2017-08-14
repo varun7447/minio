@@ -27,24 +27,25 @@ import (
 )
 
 // Config version
-const v19 = "19"
+const v20 = "20"
 
 var (
 	// serverConfig server config.
-	serverConfig   *serverConfigV19
+	serverConfig   *serverConfigV20
 	serverConfigMu sync.RWMutex
 )
 
-// serverConfigV19 server configuration version '19' which is like
-// version '18' except it adds support for MQTT notifications.
-type serverConfigV19 struct {
+// serverConfigV20 server configuration version '20' which is like
+// version '19' except it adds support for VirtualHostDomain
+type serverConfigV20 struct {
 	sync.RWMutex
 	Version string `json:"version"`
 
 	// S3 API configuration.
-	Credential credential  `json:"credential"`
-	Region     string      `json:"region"`
-	Browser    BrowserFlag `json:"browser"`
+	Credential        credential  `json:"credential"`
+	Region            string      `json:"region"`
+	Browser           BrowserFlag `json:"browser"`
+	VirtualHostDomain string      `json:"virtualHostDomain"`
 
 	// Additional error logging configuration.
 	Logger *loggers `json:"logger"`
@@ -54,7 +55,7 @@ type serverConfigV19 struct {
 }
 
 // GetVersion get current config version.
-func (s *serverConfigV19) GetVersion() string {
+func (s *serverConfigV20) GetVersion() string {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -62,7 +63,7 @@ func (s *serverConfigV19) GetVersion() string {
 }
 
 // SetRegion set a new region.
-func (s *serverConfigV19) SetRegion(region string) {
+func (s *serverConfigV20) SetRegion(region string) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -71,7 +72,7 @@ func (s *serverConfigV19) SetRegion(region string) {
 }
 
 // GetRegion get current region.
-func (s *serverConfigV19) GetRegion() string {
+func (s *serverConfigV20) GetRegion() string {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -79,7 +80,7 @@ func (s *serverConfigV19) GetRegion() string {
 }
 
 // SetCredentials set new credentials. SetCredential returns the previous credential.
-func (s *serverConfigV19) SetCredential(creds credential) (prevCred credential) {
+func (s *serverConfigV20) SetCredential(creds credential) (prevCred credential) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -94,7 +95,7 @@ func (s *serverConfigV19) SetCredential(creds credential) (prevCred credential) 
 }
 
 // GetCredentials get current credentials.
-func (s *serverConfigV19) GetCredential() credential {
+func (s *serverConfigV20) GetCredential() credential {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -102,7 +103,7 @@ func (s *serverConfigV19) GetCredential() credential {
 }
 
 // SetBrowser set if browser is enabled.
-func (s *serverConfigV19) SetBrowser(b bool) {
+func (s *serverConfigV20) SetBrowser(b bool) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -111,7 +112,7 @@ func (s *serverConfigV19) SetBrowser(b bool) {
 }
 
 // GetCredentials get current credentials.
-func (s *serverConfigV19) GetBrowser() bool {
+func (s *serverConfigV20) GetBrowser() bool {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -119,7 +120,7 @@ func (s *serverConfigV19) GetBrowser() bool {
 }
 
 // Save config.
-func (s *serverConfigV19) Save() error {
+func (s *serverConfigV20) Save() error {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -127,9 +128,9 @@ func (s *serverConfigV19) Save() error {
 	return quick.Save(getConfigFile(), s)
 }
 
-func newServerConfigV19() *serverConfigV19 {
-	srvCfg := &serverConfigV19{
-		Version:    v19,
+func newServerConfigV20() *serverConfigV20 {
+	srvCfg := &serverConfigV20{
+		Version:    v20,
 		Credential: mustGetNewCredential(),
 		Region:     globalMinioDefaultRegion,
 		Browser:    true,
@@ -167,7 +168,7 @@ func newServerConfigV19() *serverConfigV19 {
 // found, otherwise use default parameters
 func newConfig() error {
 	// Initialize server config.
-	srvCfg := newServerConfigV19()
+	srvCfg := newServerConfigV20()
 
 	// If env is set override the credentials from config file.
 	if globalIsEnvCreds {
@@ -180,6 +181,10 @@ func newConfig() error {
 
 	if globalIsEnvRegion {
 		srvCfg.SetRegion(globalServerRegion)
+	}
+
+	if globalIsEnvVirtualHostDomainName {
+		srvCfg.VirtualHostDomain = globalVirtualHostDomainName
 	}
 
 	// hold the mutex lock before a new config is assigned.
@@ -245,8 +250,8 @@ func checkDupJSONKeys(json string) error {
 }
 
 // getValidConfig - returns valid server configuration
-func getValidConfig() (*serverConfigV19, error) {
-	srvCfg := &serverConfigV19{
+func getValidConfig() (*serverConfigV20, error) {
+	srvCfg := &serverConfigV20{
 		Region:  globalMinioDefaultRegion,
 		Browser: true,
 	}
@@ -256,8 +261,8 @@ func getValidConfig() (*serverConfigV19, error) {
 		return nil, err
 	}
 
-	if srvCfg.Version != v19 {
-		return nil, fmt.Errorf("configuration version mismatch. Expected: ‘%s’, Got: ‘%s’", v19, srvCfg.Version)
+	if srvCfg.Version != v20 {
+		return nil, fmt.Errorf("configuration version mismatch. Expected: ‘%s’, Got: ‘%s’", v20, srvCfg.Version)
 	}
 
 	// Load config file json and check for duplication json keys
@@ -311,6 +316,10 @@ func loadConfig() error {
 		srvCfg.SetRegion(globalServerRegion)
 	}
 
+	if globalIsEnvVirtualHostDomainName {
+		srvCfg.VirtualHostDomain = globalVirtualHostDomainName
+	}
+
 	// hold the mutex lock before a new config is assigned.
 	serverConfigMu.Lock()
 	serverConfig = srvCfg
@@ -322,6 +331,9 @@ func loadConfig() error {
 	}
 	if !globalIsEnvRegion {
 		globalServerRegion = serverConfig.GetRegion()
+	}
+	if !globalIsEnvVirtualHostDomainName {
+		globalVirtualHostDomainName = serverConfig.VirtualHostDomain
 	}
 	serverConfigMu.Unlock()
 
