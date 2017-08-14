@@ -66,6 +66,8 @@ func initConfig() {
 func handleCommonCmdArgs(ctx *cli.Context) {
 	// Set configuration directory.
 	{
+		// Root domain name for virtual-host-style requests.
+		globalDomainName = ctx.String("domain")
 		// Get configuration directory from command line argument.
 		configDir := ctx.String("config-dir")
 		if !ctx.IsSet("config-dir") && ctx.GlobalIsSet("config-dir") {

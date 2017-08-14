@@ -138,6 +138,7 @@ var (
 	globalActiveCred         credential
 	globalPublicCerts        []*x509.Certificate
 	globalXLObjCacheDisabled bool
+	globalDomainName         string // Root domain for virtual host style requests
 	// Add new variable global values here.
 )
 

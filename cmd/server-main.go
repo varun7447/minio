@@ -34,6 +34,10 @@ var serverFlags = []cli.Flag{
 		Value: ":" + globalMinioPort,
 		Usage: "Bind to a specific ADDRESS:PORT, ADDRESS can be an IP or hostname.",
 	},
+	cli.StringFlag{
+		Name:  "domain, v",
+		Usage: "Domain for supporting virtual-host-style requests.",
+	},
 }
 
 var serverCmd = cli.Command{
@@ -88,6 +92,9 @@ func serverHandleCmdArgs(ctx *cli.Context) {
 	// Server address.
 	serverAddr := ctx.String("address")
 	fatalIf(CheckLocalServerAddr(serverAddr), "Invalid address ‘%s’ in command line argument.", serverAddr)
+
+	// Root domain name for virtual-host-style requests.
+	globalDomainName = ctx.String("domain")
 
 	var setupType SetupType
 	var err error

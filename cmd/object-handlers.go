@@ -19,6 +19,7 @@ package cmd
 import (
 	"encoding/hex"
 	"encoding/xml"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -97,7 +98,7 @@ func (api objectAPIHandlers) GetObjectHandler(w http.ResponseWriter, r *http.Req
 	vars := mux.Vars(r)
 	bucket = vars["bucket"]
 	object = vars["object"]
-
+	fmt.Println("get", bucket, object)
 	// Fetch object stat info.
 	objectAPI := api.ObjectAPI()
 	if objectAPI == nil {
@@ -218,7 +219,7 @@ func (api objectAPIHandlers) HeadObjectHandler(w http.ResponseWriter, r *http.Re
 	vars := mux.Vars(r)
 	bucket = vars["bucket"]
 	object = vars["object"]
-
+	fmt.Println("==", bucket, object)
 	objectAPI := api.ObjectAPI()
 	if objectAPI == nil {
 		writeErrorResponseHeadersOnly(w, ErrServerNotInitialized)

@@ -127,7 +127,11 @@ func checkRequestAuthType(r *http.Request, bucket, policyAction, region string) 
 	if reqAuthType == authTypeAnonymous && policyAction != "" {
 		// http://docs.aws.amazon.com/AmazonS3/latest/dev/using-with-s3-actions.html
 		sourceIP := getSourceIPAddress(r)
-		return enforceBucketPolicy(bucket, policyAction, r.URL.Path,
+		resource := r.URL.Path
+		if globalDomainName != "" && strings.HasSuffix(r.Host, "."+globalDomainName) {
+			resource = slashSeparator + pathJoin(bucket, r.URL.Path)
+		}
+		return enforceBucketPolicy(bucket, policyAction, resource,
 			r.Referer(), sourceIP, r.URL.Query())
 	}
 
