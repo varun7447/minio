@@ -35,6 +35,7 @@ import (
 const (
 	// Admin service names
 	serviceRestartRPC = "Admin.Restart"
+	serviceStopRPC    = "Admin.Stop"
 	listLocksRPC      = "Admin.ListLocks"
 	reInitDisksRPC    = "Admin.ReInitDisks"
 	serverInfoDataRPC = "Admin.ServerInfoData"
@@ -57,6 +58,7 @@ type remoteAdminClient struct {
 // commands like service stop and service restart.
 type adminCmdRunner interface {
 	Restart() error
+	Stop() error
 	ListLocks(bucket, prefix string, duration time.Duration) ([]VolumeLockInfo, error)
 	ReInitDisks() error
 	ServerInfoData() (ServerInfoData, error)
@@ -72,6 +74,13 @@ func (lc localAdminClient) Restart() error {
 	return nil
 }
 
+// Stop - Sends a message over channel to the go-routine
+// responsible for stopping the process.
+func (lc localAdminClient) Stop() error {
+	globalServiceSignalCh <- serviceStop
+	return nil
+}
+
 // ListLocks - Fetches lock information from local lock instrumentation.
 func (lc localAdminClient) ListLocks(bucket, prefix string, duration time.Duration) ([]VolumeLockInfo, error) {
 	return listLocksInfo(bucket, prefix, duration), nil
@@ -82,6 +91,13 @@ func (rc remoteAdminClient) Restart() error {
 	args := AuthRPCArgs{}
 	reply := AuthRPCReply{}
 	return rc.Call(serviceRestartRPC, &args, &reply)
+}
+
+// Restart - Sends stop command to remote server via RPC.
+func (rc remoteAdminClient) Stop() error {
+	args := AuthRPCArgs{}
+	reply := AuthRPCReply{}
+	return rc.Call(serviceStopRPC, &args, &reply)
 }
 
 // ListLocks - Sends list locks command to remote server via RPC.
@@ -279,6 +295,8 @@ func invokeServiceCmd(cp adminPeer, cmd serviceSignal) (err error) {
 	switch cmd {
 	case serviceRestart:
 		err = cp.cmdRunner.Restart()
+	case serviceStop:
+		err = cp.cmdRunner.Stop()
 	}
 	return err
 }

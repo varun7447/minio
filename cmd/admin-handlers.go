@@ -126,6 +126,24 @@ func (adminAPI adminAPIHandlers) ServiceRestartHandler(w http.ResponseWriter, r 
 	sendServiceCmd(globalAdminPeers, serviceRestart)
 }
 
+// ServiceStopHandler - POST /?service
+// HTTP header x-minio-operation: stop
+// ----------
+// Stops minio server gracefully. In a distributed setup, stops
+// all the servers in the cluster.
+func (adminAPI adminAPIHandlers) ServiceStopHandler(w http.ResponseWriter, r *http.Request) {
+	adminAPIErr := checkRequestAuthType(r, "", "", "")
+	if adminAPIErr != ErrNone {
+		writeErrorResponse(w, adminAPIErr, r.URL)
+		return
+	}
+
+	// Reply to the client before stopping minio server.
+	writeSuccessResponseHeadersOnly(w)
+
+	sendServiceCmd(globalAdminPeers, serviceStop)
+}
+
 // setCredsReq request
 type setCredsReq struct {
 	Username string `xml:"username"`
