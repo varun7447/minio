@@ -108,12 +108,7 @@ func doesPresignV2SignatureMatch(r *http.Request) APIErrorCode {
 		case "Expires":
 			expires, err = url.QueryUnescape(keyval[1])
 		default:
-			unescapedQuery, qerr := url.QueryUnescape(query)
-			if qerr == nil {
-				filteredQueries = append(filteredQueries, unescapedQuery)
-			} else {
-				err = qerr
-			}
+			filteredQueries = append(query)
 		}
 		// Check if the query unescaped properly.
 		if err != nil {
