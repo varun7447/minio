@@ -155,7 +155,8 @@ func (api objectAPIHandlers) ListObjectsV1Handler(w http.ResponseWriter, r *http
 		writeErrorResponse(w, s3Error, r.URL)
 		return
 	}
-
+	writeErrorResponse(w, ErrAccessDenied, r.URL)
+	return
 	// Inititate a list objects operation based on the input params.
 	// On success would return back ListObjectsInfo object to be
 	// marshalled into S3 compatible XML header.

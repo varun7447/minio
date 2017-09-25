@@ -316,6 +316,11 @@ func (a *azureObjects) ListObjects(bucket, prefix, marker, delimiter string, max
 		Delimiter:  delimiter,
 		MaxResults: uint(maxKeys),
 	})
+	errMsg := "nil"
+	if err != nil {
+		errMsg = err.Error()
+	}
+	fmt.Printf("ListObjects Debug: bucket=%s, prefix=%s, marker=%s, delimiter=%s, maxKeys=%d, err=%s\n", bucket, prefix, marker, delimiter, maxKeys, errMsg)
 	if err != nil {
 		return result, azureToObjectError(traceError(err), bucket, prefix)
 	}
