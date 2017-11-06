@@ -26,18 +26,25 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// To introduce a new config version:
+// 1. Change the configCurrentVersion
+// 2. Change the necessary serverConfigCurrent fields
+// 3. Add new migration function (ex. migrateV19ToV20())
+// 4. Add migration calling code to migrateConfig() in config-migrate.go
+// 5. Make changes in config-current_test.go for any test change
+
 // Config version
-const v20 = "20"
+const configCurrentVersion = "20"
 
 var (
 	// serverConfig server config.
-	serverConfig   *serverConfigV20
+	serverConfig   *serverConfigCurrent
 	serverConfigMu sync.RWMutex
 )
 
 // serverConfigV20 server configuration version '20' which is like
 // version '19' except it adds support for VirtualHostDomain
-type serverConfigV20 struct {
+type serverConfigCurrent struct {
 	sync.RWMutex
 	Version string `json:"version"`
 
@@ -55,7 +62,7 @@ type serverConfigV20 struct {
 }
 
 // GetVersion get current config version.
-func (s *serverConfigV20) GetVersion() string {
+func (s *serverConfigCurrent) GetVersion() string {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -63,7 +70,7 @@ func (s *serverConfigV20) GetVersion() string {
 }
 
 // SetRegion set a new region.
-func (s *serverConfigV20) SetRegion(region string) {
+func (s *serverConfigCurrent) SetRegion(region string) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -72,7 +79,7 @@ func (s *serverConfigV20) SetRegion(region string) {
 }
 
 // GetRegion get current region.
-func (s *serverConfigV20) GetRegion() string {
+func (s *serverConfigCurrent) GetRegion() string {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -80,7 +87,7 @@ func (s *serverConfigV20) GetRegion() string {
 }
 
 // SetCredentials set new credentials. SetCredential returns the previous credential.
-func (s *serverConfigV20) SetCredential(creds credential) (prevCred credential) {
+func (s *serverConfigCurrent) SetCredential(creds credential) (prevCred credential) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -95,7 +102,7 @@ func (s *serverConfigV20) SetCredential(creds credential) (prevCred credential) 
 }
 
 // GetCredentials get current credentials.
-func (s *serverConfigV20) GetCredential() credential {
+func (s *serverConfigCurrent) GetCredential() credential {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -103,7 +110,7 @@ func (s *serverConfigV20) GetCredential() credential {
 }
 
 // SetBrowser set if browser is enabled.
-func (s *serverConfigV20) SetBrowser(b bool) {
+func (s *serverConfigCurrent) SetBrowser(b bool) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -112,7 +119,7 @@ func (s *serverConfigV20) SetBrowser(b bool) {
 }
 
 // GetCredentials get current credentials.
-func (s *serverConfigV20) GetBrowser() bool {
+func (s *serverConfigCurrent) GetBrowser() bool {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -120,7 +127,7 @@ func (s *serverConfigV20) GetBrowser() bool {
 }
 
 // Save config.
-func (s *serverConfigV20) Save() error {
+func (s *serverConfigCurrent) Save() error {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -128,9 +135,9 @@ func (s *serverConfigV20) Save() error {
 	return quick.Save(getConfigFile(), s)
 }
 
-func newServerConfigV20() *serverConfigV20 {
-	srvCfg := &serverConfigV20{
-		Version:    v20,
+func newServerConfig() *serverConfigCurrent {
+	srvCfg := &serverConfigCurrent{
+		Version:    configCurrentVersion,
 		Credential: mustGetNewCredential(),
 		Region:     globalMinioDefaultRegion,
 		Browser:    true,
@@ -168,7 +175,7 @@ func newServerConfigV20() *serverConfigV20 {
 // found, otherwise use default parameters
 func newConfig() error {
 	// Initialize server config.
-	srvCfg := newServerConfigV20()
+	srvCfg := newServerConfig()
 
 	// If env is set override the credentials from config file.
 	if globalIsEnvCreds {
@@ -250,8 +257,8 @@ func checkDupJSONKeys(json string) error {
 }
 
 // getValidConfig - returns valid server configuration
-func getValidConfig() (*serverConfigV20, error) {
-	srvCfg := &serverConfigV20{
+func getValidConfig() (*serverConfigCurrent, error) {
+	srvCfg := &serverConfigCurrent{
 		Region:  globalMinioDefaultRegion,
 		Browser: true,
 	}
@@ -261,8 +268,8 @@ func getValidConfig() (*serverConfigV20, error) {
 		return nil, err
 	}
 
-	if srvCfg.Version != v20 {
-		return nil, fmt.Errorf("configuration version mismatch. Expected: ‘%s’, Got: ‘%s’", v20, srvCfg.Version)
+	if srvCfg.Version != configCurrentVersion {
+		return nil, fmt.Errorf("configuration version mismatch. Expected: ‘%s’, Got: ‘%s’", configCurrentVersion, srvCfg.Version)
 	}
 
 	// Load config file json and check for duplication json keys

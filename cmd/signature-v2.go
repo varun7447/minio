@@ -159,7 +159,7 @@ func doesPresignV2SignatureMatch(r *http.Request) APIErrorCode {
 
 	encodedResource, err = getResource(encodedResource, r.Host, globalVirtualHostDomainName)
 	if err != nil {
-		return ErrInternalError
+		return ErrInvalidRequest
 	}
 
 	expectedSignature := preSignatureV2(r.Method, encodedResource, strings.Join(filteredQueries, "&"), r.Header, expires)
@@ -244,7 +244,7 @@ func doesSignV2Match(r *http.Request) APIErrorCode {
 
 	encodedResource, err = getResource(encodedResource, r.Host, globalVirtualHostDomainName)
 	if err != nil {
-		return ErrInternalError
+		return ErrInvalidRequest
 	}
 
 	expectedAuth := signatureV2(r.Method, encodedResource, strings.Join(unescapedQueries, "&"), r.Header)
