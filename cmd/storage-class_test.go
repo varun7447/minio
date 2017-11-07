@@ -164,15 +164,15 @@ func testGetRedundancyCount(obj ObjectLayer, instanceType string, dirs []string,
 	tests := []struct {
 		name           int
 		sc             string
-		disks          []StorageAPI
+		disksCount     int
 		expectedData   int
 		expectedParity int
 	}{
-		{1, reducedRedundancyStorageClass, xl.storageDisks, 14, 2},
-		{2, standardStorageClass, xl.storageDisks, 8, 8},
-		{3, "", xl.storageDisks, 8, 8},
-		{4, reducedRedundancyStorageClass, xl.storageDisks, 9, 7},
-		{5, standardStorageClass, xl.storageDisks, 10, 6},
+		{1, reducedRedundancyStorageClass, len(xl.storageDisks), 14, 2},
+		{2, standardStorageClass, len(xl.storageDisks), 8, 8},
+		{3, "", len(xl.storageDisks), 8, 8},
+		{4, reducedRedundancyStorageClass, len(xl.storageDisks), 9, 7},
+		{5, standardStorageClass, len(xl.storageDisks), 10, 6},
 	}
 	for _, tt := range tests {
 		// Set env var for test case 4
