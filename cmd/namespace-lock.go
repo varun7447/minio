@@ -31,6 +31,9 @@ import (
 // Global name space lock.
 var globalNSMutex *nsLockMap
 
+// list of dsync clients representing many packs
+var globalDsyncs []*dsync.Dsync
+
 // Global lock servers
 var globalLockServers []*lockServer
 
@@ -85,6 +88,7 @@ func newDsyncNodes(endpoints EndpointList) (clnts []dsync.NetLocker, myNode int)
 				lockMap:         make(map[string][]lockRequesterInfo),
 			},
 		}
+
 		globalLockServers = append(globalLockServers, &localLockServer)
 		clnts[index] = &(localLockServer.ll)
 	}
@@ -141,7 +145,7 @@ func (n *nsLockMap) lock(volume, path string, lockSource, opsID string, readLock
 		nsLk = &nsLock{
 			RWLockerSync: func() RWLockerSync {
 				if n.isDistXL {
-					return dsync.NewDRWMutex(pathJoin(volume, path))
+					return dsync.NewDRWMutex(pathJoin(volume, path), globalDsyncs[hashOrder(path, globalXLPacks)[0]-1])
 				}
 				return &lsync.LRWMutex{}
 			}(),
@@ -295,7 +299,7 @@ func (n *nsLockMap) ForceUnlock(volume, path string) {
 	//   are blocking can now proceed as normal and any new locks will also
 	//   participate normally.
 	if n.isDistXL { // For distributed mode, broadcast ForceUnlock message.
-		dsync.NewDRWMutex(pathJoin(volume, path)).ForceUnlock()
+		dsync.NewDRWMutex(pathJoin(volume, path), globalDsyncs[hashOrder(path, globalXLPacks)[0]-1]).ForceUnlock()
 	}
 
 	param := nsParam{volume, path}

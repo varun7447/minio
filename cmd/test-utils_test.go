@@ -1621,25 +1621,17 @@ func getRandomDisks(N int) ([]string, error) {
 
 // initObjectLayer - Instantiates object layer and returns it.
 func initObjectLayer(endpoints EndpointList) (ObjectLayer, []StorageAPI, error) {
-	storageDisks, err := initStorageDisks(endpoints)
+	objLayer, err := newObjectLayer(endpoints)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	formattedDisks, err := waitForFormatXLDisks(true, endpoints, storageDisks)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	objLayer, err := newXLObjectLayer(formattedDisks)
-	if err != nil {
-		return nil, nil, err
-	}
-
+	var formattedDisks []StorageAPI
 	// Disabling the cache for integration tests.
 	// Should use the object layer tests for validating cache.
 	if xl, ok := objLayer.(*xlObjects); ok {
 		xl.objCacheEnabled = false
+		formattedDisks = xl.storageDisks
 	}
 
 	// Success.
@@ -2336,15 +2328,9 @@ func generateTLSCertKey(host string) ([]byte, []byte, error) {
 }
 
 func mustGetNewEndpointList(args ...string) (endpoints EndpointList) {
-	if len(args) == 1 {
-		endpoint, err := NewEndpoint(args[0])
-		fatalIf(err, "unable to create new endpoint")
-		endpoints = append(endpoints, endpoint)
-	} else {
-		var err error
-		endpoints, err = NewEndpointList(args...)
-		fatalIf(err, "unable to create new endpoint list")
-	}
+	var err error
+	endpoints, err = NewEndpointList(args...)
+	fatalIf(err, "unable to create new endpoint list")
 
 	return endpoints
 }

@@ -17,9 +17,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -45,7 +47,8 @@ const (
 // Endpoint - any type of endpoint.
 type Endpoint struct {
 	*url.URL
-	IsLocal bool
+	IsLocal   bool
+	SlotIndex int
 }
 
 func (endpoint Endpoint) String() string {
@@ -193,11 +196,6 @@ func NewEndpointList(args ...string) (endpoints EndpointList, err error) {
 		return (count >= minErasureBlocks && count <= maxErasureBlocks && count%2 == 0)
 	}
 
-	// Check whether no. of args are valid for XL distribution.
-	if !isValidDistribution(len(args)) {
-		return nil, fmt.Errorf("A total of %d endpoints were found. For erasure mode it should be an even number between %d and %d", len(args), minErasureBlocks, maxErasureBlocks)
-	}
-
 	var endpointType EndpointType
 	var scheme string
 
@@ -229,6 +227,14 @@ func NewEndpointList(args ...string) (endpoints EndpointList, err error) {
 
 	sort.Sort(endpoints)
 
+	if len(endpoints) > 1 {
+		// Check whether no. of args are valid for XL distribution.
+		if !isValidDistribution(len(endpoints)) {
+			return nil, fmt.Errorf("A total of %d endpoints were found. For erasure mode it should be an even number between %d and %d",
+				len(endpoints), minErasureBlocks, maxErasureBlocks)
+		}
+	}
+
 	return endpoints, nil
 }
 
@@ -248,15 +254,64 @@ func checkCrossDeviceMounts(endpoints EndpointList) (err error) {
 	return mountinfo.CheckCrossDevice(absPaths)
 }
 
+func getPacks(packsFile string) ([][]string, error) {
+	r, err := os.Open(packsFile)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	var slotArgs [][]string
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		slotArgs = append(slotArgs, strings.Fields(scanner.Text()))
+	}
+	prevSlotSize := len(slotArgs[0])
+	for i, args := range slotArgs {
+		if len(args) != prevSlotSize {
+			return nil, fmt.Errorf("Unexpected slot sizes found, slot %d is of length %d but expected %d", i+1, len(args), prevSlotSize)
+		}
+	}
+	return slotArgs, nil
+}
+
+// CreateEndpointsFromPacks - validates and creates new endpoints for given packs file.
+func CreateEndpointsFromPacks(serverAddr, packsFile string) (string, EndpointList, SetupType, int, error) {
+	var slotEndpoints EndpointList
+	var setupType SetupType
+
+	slotArgs, err := getPacks(packsFile)
+	if err != nil {
+		return serverAddr, nil, setupType, 0, err
+	}
+
+	var endpoints EndpointList
+	var slotSize int
+	for i, packs := range slotArgs {
+		serverAddr, endpoints, setupType, _, err = CreateEndpoints(serverAddr, packs...)
+		if err != nil {
+			return serverAddr, slotEndpoints, setupType, 0, err
+		}
+		var newEndpoints EndpointList
+		for _, endpoint := range endpoints {
+			endpoint.SlotIndex = i
+			newEndpoints = append(newEndpoints, endpoint)
+		}
+		slotSize = i + 1
+		slotEndpoints = append(slotEndpoints, newEndpoints...)
+	}
+	return serverAddr, slotEndpoints, setupType, slotSize, nil
+}
+
 // CreateEndpoints - validates and creates new endpoints for given args.
-func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, SetupType, error) {
+func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, SetupType, int, error) {
 	var endpoints EndpointList
 	var setupType SetupType
 	var err error
 
 	// Check whether serverAddr is valid for this host.
 	if err = CheckLocalServerAddr(serverAddr); err != nil {
-		return serverAddr, endpoints, setupType, err
+		return serverAddr, endpoints, setupType, 0, err
 	}
 
 	_, serverAddrPort := mustSplitHostPort(serverAddr)
@@ -266,35 +321,35 @@ func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, S
 		var endpoint Endpoint
 		endpoint, err = NewEndpoint(args[0])
 		if err != nil {
-			return serverAddr, endpoints, setupType, err
+			return serverAddr, endpoints, setupType, 0, err
 		}
 		if endpoint.Type() != PathEndpointType {
-			return serverAddr, endpoints, setupType, fmt.Errorf("use path style endpoint for FS setup")
+			return serverAddr, endpoints, setupType, 0, fmt.Errorf("use path style endpoint for FS setup")
 		}
 		endpoints = append(endpoints, endpoint)
 		setupType = FSSetupType
 
 		// Check for cross device mounts if any.
 		if err = checkCrossDeviceMounts(endpoints); err != nil {
-			return serverAddr, endpoints, setupType, err
+			return serverAddr, endpoints, setupType, 0, err
 		}
-		return serverAddr, endpoints, setupType, nil
+		return serverAddr, endpoints, setupType, 0, nil
 	}
 
 	// Convert args to endpoints
 	if endpoints, err = NewEndpointList(args...); err != nil {
-		return serverAddr, endpoints, setupType, err
+		return serverAddr, endpoints, setupType, 0, err
 	}
 
 	// Check for cross device mounts if any.
 	if err = checkCrossDeviceMounts(endpoints); err != nil {
-		return serverAddr, endpoints, setupType, err
+		return serverAddr, endpoints, setupType, 0, err
 	}
 
 	// Return XL setup when all endpoints are path style.
 	if endpoints[0].Type() == PathEndpointType {
 		setupType = XLSetupType
-		return serverAddr, endpoints, setupType, nil
+		return serverAddr, endpoints, setupType, 1, nil
 	}
 
 	// Here all endpoints are URL style.
@@ -322,7 +377,7 @@ func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, S
 
 	// No local endpoint found.
 	if localEndpointCount == 0 {
-		return serverAddr, endpoints, setupType, fmt.Errorf("no endpoint found for this host")
+		return serverAddr, endpoints, setupType, 0, fmt.Errorf("no endpoint found for this host")
 	}
 
 	// Check whether same path is not used in endpoints of a host.
@@ -338,7 +393,7 @@ func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, S
 			if IPSet, ok := pathIPMap[endpoint.Path]; ok {
 				if !IPSet.Intersection(hostIPSet).IsEmpty() {
 					err = fmt.Errorf("path '%s' can not be served by different port on same address", endpoint.Path)
-					return serverAddr, endpoints, setupType, err
+					return serverAddr, endpoints, setupType, 0, err
 				}
 
 				pathIPMap[endpoint.Path] = IPSet.Union(hostIPSet)
@@ -357,7 +412,7 @@ func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, S
 				err = fmt.Errorf("server address and local endpoint have different ports")
 			}
 
-			return serverAddr, endpoints, setupType, err
+			return serverAddr, endpoints, setupType, 0, err
 		}
 	}
 
@@ -377,7 +432,7 @@ func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, S
 			endpointPaths := endpointPathSet.ToSlice()
 			endpoints, _ = NewEndpointList(endpointPaths...)
 			setupType = XLSetupType
-			return serverAddr, endpoints, setupType, nil
+			return serverAddr, endpoints, setupType, 1, nil
 		}
 
 		// Eventhough all endpoints are local, but those endpoints use different ports.
@@ -402,7 +457,7 @@ func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, S
 			// If loop back IP is found and ipList contains only loop back IPs, then error out.
 			if len(loopBackIPs) > 0 && len(loopBackIPs) == len(ipList) {
 				err = fmt.Errorf("'%s' resolves to loopback address is not allowed for distributed XL", localServerAddr)
-				return serverAddr, endpoints, setupType, err
+				return serverAddr, endpoints, setupType, 0, err
 			}
 		}
 	}
@@ -419,7 +474,7 @@ func CreateEndpoints(serverAddr string, args ...string) (string, EndpointList, S
 	}
 
 	setupType = DistXLSetupType
-	return serverAddr, endpoints, setupType, nil
+	return serverAddr, endpoints, setupType, 1, nil
 }
 
 // GetLocalPeer - returns local peer value, returns globalMinioAddr

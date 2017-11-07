@@ -306,7 +306,7 @@ func TestCreateEndpoints(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		serverAddr, endpoints, setupType, err := CreateEndpoints(testCase.serverAddr, testCase.args...)
+		serverAddr, endpoints, setupType, _, err := CreateEndpoints(testCase.serverAddr, testCase.args...)
 
 		if err == nil {
 			if testCase.expectedErr != nil {

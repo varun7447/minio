@@ -173,8 +173,10 @@ func getStorageInfoMsg(storageInfo StorageInfo) string {
 		humanize.IBytes(uint64(storageInfo.Total)))
 	if storageInfo.Backend.Type == Erasure {
 		diskInfo := fmt.Sprintf(" %d Online, %d Offline. ", storageInfo.Backend.OnlineDisks, storageInfo.Backend.OfflineDisks)
-		if maxDiskFailures := storageInfo.Backend.ReadQuorum - storageInfo.Backend.OfflineDisks; maxDiskFailures >= 0 {
-			diskInfo += fmt.Sprintf("We can withstand [%d] drive failure(s).", maxDiskFailures)
+		if storageInfo.Backend.ReadQuorum > 0 {
+			if maxDiskFailures := storageInfo.Backend.ReadQuorum - storageInfo.Backend.OfflineDisks; maxDiskFailures >= 0 {
+				diskInfo += fmt.Sprintf("We can withstand [%d] drive failure(s).", maxDiskFailures)
+			}
 		}
 		msg += colorBlue("\nStatus:") + fmt.Sprintf(getFormatStr(len(diskInfo), 8), diskInfo)
 	}

@@ -35,6 +35,11 @@ var serverFlags = []cli.Flag{
 		Value: ":" + globalMinioPort,
 		Usage: "Bind to a specific ADDRESS:PORT, ADDRESS can be an IP or hostname.",
 	},
+	cli.StringFlag{
+		Name:  "packs",
+		Value: "packs",
+		Usage: "Erasure packs configuration file",
+	},
 }
 
 var serverCmd = cli.Command{
@@ -93,7 +98,11 @@ func serverHandleCmdArgs(ctx *cli.Context) {
 	var setupType SetupType
 	var err error
 
-	globalMinioAddr, globalEndpoints, setupType, err = CreateEndpoints(serverAddr, ctx.Args()...)
+	if ctx.IsSet("packs") {
+		globalMinioAddr, globalEndpoints, setupType, globalXLPacks, err = CreateEndpointsFromPacks(serverAddr, ctx.String("packs"))
+	} else {
+		globalMinioAddr, globalEndpoints, setupType, globalXLPacks, err = CreateEndpoints(serverAddr, ctx.Args()...)
+	}
 	fatalIf(err, "Invalid command line arguments server=‘%s’, args=%s", serverAddr, ctx.Args())
 	globalMinioHost, globalMinioPort = mustSplitHostPort(globalMinioAddr)
 	if runtime.GOOS == "darwin" {
@@ -125,7 +134,7 @@ func serverHandleEnvVars() {
 
 // serverMain handler called for 'minio server' command.
 func serverMain(ctx *cli.Context) {
-	if !ctx.Args().Present() || ctx.Args().First() == "help" {
+	if (!ctx.IsSet("packs") && !ctx.Args().Present()) || ctx.Args().First() == "help" {
 		cli.ShowCommandHelpAndExit(ctx, "server", 1)
 	}
 
@@ -176,8 +185,12 @@ func serverMain(ctx *cli.Context) {
 
 	// Set nodes for dsync for distributed setup.
 	if globalIsDistXL {
-		clnts, myNode := newDsyncNodes(globalEndpoints)
-		fatalIf(dsync.Init(clnts, myNode), "Unable to initialize distributed locking clients")
+		for _, endpoints := range getEndpointPacks(globalEndpoints, globalXLPacks) {
+			var ds *dsync.Dsync
+			ds, err = dsync.New(newDsyncNodes(endpoints))
+			fatalIf(err, "Unable to initialize distributed locking on %s", endpoints)
+			globalDsyncs = append(globalDsyncs, ds)
+		}
 	}
 
 	// Initialize name space lock.
@@ -228,6 +241,25 @@ func serverMain(ctx *cli.Context) {
 	handleSignals()
 }
 
+func getEndpointPacks(endpoints EndpointList, slotSize int) []EndpointList {
+	if slotSize == 0 {
+		return []EndpointList{endpoints}
+	}
+	var slotEndpoints []EndpointList
+	for i := 0; i < slotSize; i++ {
+		var slotEndpoint EndpointList
+		for _, endpoint := range endpoints {
+			if endpoint.SlotIndex == i {
+				slotEndpoint = append(slotEndpoint, endpoint)
+			}
+		}
+		slotEndpoints = append(slotEndpoints, slotEndpoint)
+	}
+
+	// Success.
+	return slotEndpoints
+}
+
 // Initialize object layer with the supplied disks, objectLayer is nil upon any error.
 func newObjectLayer(endpoints EndpointList) (newObject ObjectLayer, err error) {
 	// For FS only, directly use the disk.
@@ -237,33 +269,62 @@ func newObjectLayer(endpoints EndpointList) (newObject ObjectLayer, err error) {
 		return newFSObjectLayer(endpoints[0].Path)
 	}
 
-	// Initialize storage disks.
-	storageDisks, err := initStorageDisks(endpoints)
-	if err != nil {
-		return nil, err
-	}
-
 	// Wait for formatting disks for XL backend.
-	var formattedDisks []StorageAPI
+	var formattedDisksPacks [][]StorageAPI
 
 	// First disk argument check if it is local.
-	firstDisk := endpoints[0].IsLocal
-	formattedDisks, err = waitForFormatXLDisks(firstDisk, endpoints, storageDisks)
-	if err != nil {
+	endpointsList := getEndpointPacks(endpoints, globalXLPacks)
+	for _, endpoints := range endpointsList {
+		var storageDisks []StorageAPI
+		// Initialize storage disks.
+		storageDisks, err = initStorageDisks(endpoints)
+		if err != nil {
+			return nil, err
+		}
+
+		var formattedDisks []StorageAPI
+		formattedDisks, err = waitForFormatXLDisks(endpoints[0].IsLocal, endpoints, storageDisks)
+		if err != nil {
+			return nil, err
+		}
+
+		// Cleanup objects that weren't successfully written into the namespace.
+		if err = houseKeeping(formattedDisks); err != nil {
+			return nil, err
+		}
+
+		formattedDisksPacks = append(formattedDisksPacks, formattedDisks)
+	}
+
+	// Once all disks are formatted in XL, proceed to initialize object layer.
+	var objAPI ObjectLayer
+	if len(formattedDisksPacks) == 1 {
+		// Initialize XL object layer.
+		objAPI, err = newXLObjects(formattedDisksPacks[0])
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var layers []*xlObjects
+		for _, storageDisks := range formattedDisksPacks {
+			var obj ObjectLayer
+			if obj, err = newXLObjects(storageDisks); err != nil {
+				return nil, err
+			}
+			layers = append(layers, obj.(*xlObjects))
+		}
+		objAPI = newXLPacks(layers)
+	}
+
+	// Initialize and load bucket policies.
+	if err = initBucketPolicies(objAPI); err != nil {
 		return nil, err
 	}
 
-	// Cleanup objects that weren't successfully written into the namespace.
-	if err = houseKeeping(storageDisks); err != nil {
+	// Initialize a new event notifier.
+	if err = initEventNotifier(objAPI); err != nil {
 		return nil, err
 	}
 
-	// Once XL formatted, initialize object layer.
-	newObject, err = newXLObjectLayer(formattedDisks)
-	if err != nil {
-		return nil, err
-	}
-
-	// XL initialized, return.
-	return newObject, nil
+	return objAPI, nil
 }

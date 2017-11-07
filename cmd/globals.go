@@ -74,6 +74,9 @@ const (
 )
 
 var (
+	// Indicates the total number of XL packs configured.
+	globalXLPacks int
+
 	// Indicates if the running minio server is distributed setup.
 	globalIsDistXL = false
 
