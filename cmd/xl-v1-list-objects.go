@@ -16,7 +16,11 @@
 
 package cmd
 
-import "github.com/minio/minio/pkg/errors"
+import (
+	"strings"
+
+	"github.com/minio/minio/pkg/errors"
+)
 
 // Returns function "listDir" of the type listDirFunc.
 // isLeaf - is used by listDir function to check if an entry is a leaf or non-leaf entry.
@@ -45,6 +49,37 @@ func listDirFactory(isLeaf isLeafFunc, treeWalkIgnoredErrs []error, disks ...Sto
 		return nil, false, nil
 	}
 	return listDir
+}
+
+func (xl xlObjects) listPrefix(bucket, prefixDir, prefixEntry string) (entries []string, err error) {
+	for _, disk := range xl.getLoadBalancedDisks() {
+		if disk == nil {
+			continue
+		}
+		entries, err = disk.ListDir(bucket, prefixDir)
+		if err != nil {
+			// For any reason disk was deleted or goes offline, continue
+			// and list from other disks if possible.
+			if errors.IsErrIgnored(err, xlTreeWalkIgnoredErrs...) {
+				continue
+			}
+			return nil, errors.Trace(err)
+		}
+
+		// Filter entries that have the prefix prefixEntry.
+		entries = filterMatchingPrefix(entries, prefixEntry)
+
+		// isObject() check has to happen here so that
+		// trailing "/" for objects can be removed.
+		for i, entry := range entries {
+			if xl.isObject(bucket, pathJoin(prefixDir, entry)) {
+				entries[i] = strings.TrimSuffix(entry, slashSeparator)
+			}
+		}
+		return entries, nil
+	}
+	// Nothing found in all disks
+	return nil, nil
 }
 
 // listObjects - wrapper function implemented over file tree walk.

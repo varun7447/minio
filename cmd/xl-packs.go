@@ -19,7 +19,6 @@ package cmd
 import (
 	"io"
 	"sort"
-	"strings"
 
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
@@ -197,42 +196,12 @@ func (s xlPacks) CopyObject(srcBucket, srcObject, destBucket, destObject string,
 // Returns function "listDir" of the type listDirFunc.
 // isLeaf - is used by listDir function to check if an entry is a leaf or non-leaf entry.
 // disks - used for doing disk.ListDir(). FS passes single disk argument, XL passes a list of disks.
-func listDirPacksFactory(isLeaf isLeafFunc, treeWalkIgnoredErrs []error, packs ...[]StorageAPI) listDirFunc {
-	listDirInternal := func(bucket, prefixDir, prefixEntry string, disks []StorageAPI) (entries []string, err error) {
-		for _, disk := range disks {
-			if disk == nil {
-				continue
-			}
-			entries, err = disk.ListDir(bucket, prefixDir)
-			if err != nil {
-				// For any reason disk was deleted or goes offline, continue
-				// and list from other disks if possible.
-				if errors.IsErrIgnored(err, treeWalkIgnoredErrs...) {
-					continue
-				}
-				return nil, errors.Trace(err)
-			}
-
-			// Filter entries that have the prefix prefixEntry.
-			entries = filterMatchingPrefix(entries, prefixEntry)
-
-			// isLeaf() check has to happen here so that
-			// trailing "/" for objects can be removed.
-			for i, entry := range entries {
-				if isLeaf(bucket, pathJoin(prefixDir, entry)) {
-					entries[i] = strings.TrimSuffix(entry, slashSeparator)
-				}
-			}
-			break
-		}
-		return entries, nil
-	}
-
+func (s *xlPacks) listDirFactory() listDirFunc {
 	// listDir - lists all the entries at a given prefix and given entry in the prefix.
 	listDir := func(bucket, prefixDir, prefixEntry string) (mergedEntries []string, delayIsLeaf bool, err error) {
-		for _, disks := range packs {
+		for _, xl := range s.getLoadBalancedLayers(UTCNow().String()) {
 			var entries []string
-			entries, err = listDirInternal(bucket, prefixDir, prefixEntry, disks)
+			entries, err = xl.listPrefix(bucket, prefixDir, prefixEntry)
 			if err != nil {
 				return nil, false, err
 			}
@@ -273,16 +242,11 @@ func (s *xlPacks) ListObjects(bucket, prefix, marker, delimiter string, maxKeys 
 	walkResultCh, endWalkCh := s.listPool.Release(listParams{bucket, recursive, marker, prefix, false})
 	if walkResultCh == nil {
 		endWalkCh = make(chan struct{})
-		isLeaf := func(bucket, entry string) bool {
-			entry = strings.TrimSuffix(entry, slashSeparator)
-			return s.getHashedLayer(entry).isObject(bucket, entry)
+		listDir := s.listDirFactory()
+		isLeaf := func(bucket, object string) bool {
+			errorIf(errUnexpected, "isLeaf should never get called for xlPacks: %s/%s", bucket, prefix)
+			return false
 		}
-
-		var packDisks = make([][]StorageAPI, len(s.layers))
-		for _, layer := range s.layers {
-			packDisks = append(packDisks, layer.getLoadBalancedDisks())
-		}
-		listDir := listDirPacksFactory(isLeaf, xlTreeWalkIgnoredErrs, packDisks...)
 		walkResultCh = startTreeWalk(bucket, prefix, marker, recursive, listDir, isLeaf, endWalkCh)
 	}
 
