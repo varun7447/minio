@@ -121,7 +121,7 @@ var (
 	globalOSSignalCh        = make(chan os.Signal, 1)
 
 	// Enable HTTP request/response headers and body logging.
-	globalHTTPTrace bool
+	globalHTTPTrace *os.File
 
 	// List of admin peers.
 	globalAdminPeers = adminPeers{}

@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"fmt"
 
 	"github.com/minio/cli"
 	"github.com/minio/minio/pkg/auth"
@@ -100,7 +101,15 @@ func handleCommonEnvVars() {
 		globalIsBrowserEnabled = bool(browserFlag)
 	}
 
-	globalHTTPTrace = os.Getenv("MINIO_HTTP_TRACE") != ""
+	traceFile := os.Getenv("MINIO_HTTP_TRACE")
+	if traceFile != "" {
+		var err error
+		globalHTTPTrace, err = os.OpenFile(traceFile, os.O_CREATE| os.O_WRONLY| os.O_APPEND, 0660)
+		if err != nil {
+			fatalIf(err, "")
+		}
+		fmt.Println("open success")
+	}
 
 	globalDomainName = os.Getenv("MINIO_DOMAIN")
 	if globalDomainName != "" {

@@ -22,7 +22,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/minio/minio/pkg/errors"
@@ -248,18 +247,18 @@ func extractPostPolicyFormValues(form *multipart.Form) (filePart io.ReadCloser, 
 
 // Log headers and body.
 func httpTraceAll(f http.HandlerFunc) http.HandlerFunc {
-	if !globalHTTPTrace {
+	if globalHTTPTrace == nil {
 		return f
 	}
-	return httptracer.TraceReqHandlerFunc(f, os.Stdout, true)
+	return httptracer.TraceReqHandlerFunc(f, globalHTTPTrace, true)
 }
 
 // Log only the headers.
 func httpTraceHdrs(f http.HandlerFunc) http.HandlerFunc {
-	if !globalHTTPTrace {
+	if globalHTTPTrace == nil {
 		return f
 	}
-	return httptracer.TraceReqHandlerFunc(f, os.Stdout, false)
+	return httptracer.TraceReqHandlerFunc(f, globalHTTPTrace, false)
 }
 
 // Returns "/bucketName/objectName" for path-style or virtual-host-style requests.
