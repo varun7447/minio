@@ -28,48 +28,48 @@ import (
 // healFormatXL - heals missing `format.json` on freshly or corrupted
 // disks (missing format.json but does have erasure coded data in it).
 func healFormatXL(storageDisks []StorageAPI) (err error) {
-	// Attempt to load all `format.json`.
-	formatConfigs, sErrs := loadAllFormats(storageDisks)
+	// // Attempt to load all `format.json`.
+	// formatConfigs, sErrs := loadAllFormats(storageDisks)
 
-	// Generic format check.
-	// - if (no quorum) return error
-	// - if (disks not recognized) // Always error.
-	if err = genericFormatCheckXL(formatConfigs, sErrs); err != nil {
-		return err
-	}
+	// // Generic format check.
+	// // - if (no quorum) return error
+	// // - if (disks not recognized) // Always error.
+	// if err = genericFormatCheckXL(formatConfigs, sErrs); err != nil {
+	// 	return err
+	// }
 
-	numDisks := len(storageDisks)
-	_, unformattedDiskCount, diskNotFoundCount,
-		corruptedFormatCount, otherErrCount := formatErrsSummary(sErrs)
+	// numDisks := len(storageDisks)
+	// _, unformattedDiskCount, diskNotFoundCount,
+	// 	corruptedFormatCount, otherErrCount := formatErrsSummary(sErrs)
 
-	switch {
-	case unformattedDiskCount == numDisks:
-		// all unformatted.
-		if err = initFormatXL(storageDisks); err != nil {
-			return err
-		}
+	// switch {
+	// case unformattedDiskCount == numDisks:
+	// 	// all unformatted.
+	// 	if err = initFormatXL(storageDisks); err != nil {
+	// 		return err
+	// 	}
 
-	case diskNotFoundCount > 0:
-		return fmt.Errorf("cannot proceed with heal as %s",
-			errSomeDiskOffline)
+	// case diskNotFoundCount > 0:
+	// 	return fmt.Errorf("cannot proceed with heal as %s",
+	// 		errSomeDiskOffline)
 
-	case otherErrCount > 0:
-		return fmt.Errorf("cannot proceed with heal as some disks had unhandled errors")
+	// case otherErrCount > 0:
+	// 	return fmt.Errorf("cannot proceed with heal as some disks had unhandled errors")
 
-	case corruptedFormatCount > 0:
-		if err = healFormatXLCorruptedDisks(storageDisks, formatConfigs); err != nil {
-			return fmt.Errorf("Unable to repair corrupted format, %s", err)
-		}
+	// case corruptedFormatCount > 0:
+	// 	if err = healFormatXLCorruptedDisks(storageDisks, formatConfigs); err != nil {
+	// 		return fmt.Errorf("Unable to repair corrupted format, %s", err)
+	// 	}
 
-	case unformattedDiskCount > 0:
-		// All drives online but some report missing format.json.
-		if err = healFormatXLFreshDisks(storageDisks, formatConfigs); err != nil {
-			// There was an unexpected unrecoverable error
-			// during healing.
-			return fmt.Errorf("Unable to heal backend %s", err)
-		}
+	// case unformattedDiskCount > 0:
+	// 	// All drives online but some report missing format.json.
+	// 	if err = healFormatXLFreshDisks(storageDisks, formatConfigs); err != nil {
+	// 		// There was an unexpected unrecoverable error
+	// 		// during healing.
+	// 		return fmt.Errorf("Unable to heal backend %s", err)
+	// 	}
 
-	}
+	// }
 	return nil
 }
 
@@ -82,10 +82,10 @@ func (xl xlObjects) HealBucket(bucket string) error {
 	}
 
 	// get write quorum for an object
-	writeQuorum := len(xl.storageDisks)/2 + 1
+	writeQuorum := len(xl.storageDisks())/2 + 1
 
 	// Heal bucket.
-	if err := healBucket(xl.storageDisks, bucket, writeQuorum); err != nil {
+	if err := healBucket(xl.storageDisks(), bucket, writeQuorum); err != nil {
 		return err
 	}
 
@@ -267,7 +267,7 @@ func (xl xlObjects) bucketHealStatus(bucketName string) (healStatus, error) {
 func (xl xlObjects) ListBucketsHeal() ([]BucketInfo, error) {
 	listBuckets := []BucketInfo{}
 	// List all buckets that can be found in all disks
-	buckets, occ, err := listAllBuckets(xl.storageDisks)
+	buckets, occ, err := listAllBuckets(xl.storageDisks())
 	if err != nil {
 		return listBuckets, err
 	}
@@ -280,7 +280,7 @@ func (xl xlObjects) ListBucketsHeal() ([]BucketInfo, error) {
 			return []BucketInfo{}, err
 		}
 		// If all metadata are sane, check if the bucket directory is present in all disks
-		if bucketHealStatus == healthy && occ[currBucket.Name] != len(xl.storageDisks) {
+		if bucketHealStatus == healthy && occ[currBucket.Name] != len(xl.storageDisks()) {
 			// Current bucket is missing in some of the storage disks
 			bucketHealStatus = canHeal
 		}
@@ -307,7 +307,7 @@ func (xl xlObjects) ListBucketsHeal() ([]BucketInfo, error) {
 // supports quick healing of buckets, bucket metadata.
 func quickHeal(xlObj xlObjects, writeQuorum int, readQuorum int) error {
 	// List all bucket name occurrence from all disks.
-	_, bucketOcc, err := listAllBuckets(xlObj.storageDisks)
+	_, bucketOcc, err := listAllBuckets(xlObj.storageDisks())
 	if err != nil {
 		return err
 	}
@@ -315,9 +315,9 @@ func quickHeal(xlObj xlObjects, writeQuorum int, readQuorum int) error {
 	// All bucket names and bucket metadata that should be healed.
 	for bucketName, occCount := range bucketOcc {
 		// Heal bucket only if healing is needed.
-		if occCount != len(xlObj.storageDisks) {
+		if occCount != len(xlObj.storageDisks()) {
 			// Heal bucket and then proceed to heal bucket metadata if any.
-			if err = healBucket(xlObj.storageDisks, bucketName, writeQuorum); err == nil {
+			if err = healBucket(xlObj.storageDisks(), bucketName, writeQuorum); err == nil {
 				if err = healBucketMetadata(xlObj, bucketName); err == nil {
 					continue
 				}
@@ -533,7 +533,7 @@ func healObject(storageDisks []StorageAPI, bucket, object string, quorum int) (i
 // should delete it.
 func (xl xlObjects) HealObject(bucket, object string) (int, int, error) {
 	// Read metadata files from all the disks
-	partsMetadata, errs := readAllXLMetadata(xl.storageDisks, bucket, object)
+	partsMetadata, errs := readAllXLMetadata(xl.storageDisks(), bucket, object)
 
 	// get read quorum for this object
 	readQuorum, _, err := objectQuorumFromMeta(xl, partsMetadata, errs)
@@ -549,5 +549,5 @@ func (xl xlObjects) HealObject(bucket, object string) (int, int, error) {
 	defer objectLock.RUnlock()
 
 	// Heal the object.
-	return healObject(xl.storageDisks, bucket, object, readQuorum)
+	return healObject(xl.storageDisks(), bucket, object, readQuorum)
 }

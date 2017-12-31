@@ -59,7 +59,7 @@ func (xl xlObjects) prepareFile(bucket, object string, size int64, onlineDisks [
 // update metadata.
 func (xl xlObjects) CopyObject(srcBucket, srcObject, dstBucket, dstObject string, metadata map[string]string) (oi ObjectInfo, e error) {
 	// Read metadata associated with the object from all disks.
-	metaArr, errs := readAllXLMetadata(xl.storageDisks, srcBucket, srcObject)
+	metaArr, errs := readAllXLMetadata(xl.storageDisks(), srcBucket, srcObject)
 
 	// get Quorum for this object
 	readQuorum, writeQuorum, err := objectQuorumFromMeta(xl, metaArr, errs)
@@ -72,7 +72,7 @@ func (xl xlObjects) CopyObject(srcBucket, srcObject, dstBucket, dstObject string
 	}
 
 	// List all online disks.
-	onlineDisks, modTime := listOnlineDisks(xl.storageDisks, metaArr, errs)
+	onlineDisks, modTime := listOnlineDisks(xl.storageDisks(), metaArr, errs)
 
 	// Pick latest valid metadata.
 	xlMeta, err := pickValidXLMeta(metaArr, modTime)
@@ -90,7 +90,7 @@ func (xl xlObjects) CopyObject(srcBucket, srcObject, dstBucket, dstObject string
 	cpMetadataOnly := isStringEqual(pathJoin(srcBucket, srcObject), pathJoin(dstBucket, dstObject))
 	if cpMetadataOnly {
 		xlMeta.Meta = metadata
-		partsMetadata := make([]xlMetaV1, len(xl.storageDisks))
+		partsMetadata := make([]xlMetaV1, len(xl.storageDisks()))
 		// Update `xl.json` content on each disks.
 		for index := range partsMetadata {
 			partsMetadata[index] = xlMeta
@@ -159,7 +159,7 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 	}
 
 	// Read metadata associated with the object from all disks.
-	metaArr, errs := readAllXLMetadata(xl.storageDisks, bucket, object)
+	metaArr, errs := readAllXLMetadata(xl.storageDisks(), bucket, object)
 
 	// get Quorum for this object
 	readQuorum, _, err := objectQuorumFromMeta(xl, metaArr, errs)
@@ -172,7 +172,7 @@ func (xl xlObjects) GetObject(bucket, object string, startOffset int64, length i
 	}
 
 	// List all online disks.
-	onlineDisks, modTime := listOnlineDisks(xl.storageDisks, metaArr, errs)
+	onlineDisks, modTime := listOnlineDisks(xl.storageDisks(), metaArr, errs)
 
 	// Pick latest valid metadata.
 	xlMeta, err := pickValidXLMeta(metaArr, modTime)
@@ -412,7 +412,7 @@ func rename(disks []StorageAPI, srcBucket, srcEntry, dstBucket, dstEntry string,
 	// Wait for all renames to finish.
 	wg.Wait()
 
-	// We can safely allow RenameFile errors up to len(xl.storageDisks) - writeQuorum
+	// We can safely allow RenameFile errors up to len(xl.storageDisks()) - writeQuorum
 	// otherwise return failure. Cleanup successful renames.
 	err := reduceWriteQuorumErrs(errs, objectOpIgnoredErrs, writeQuorum)
 	if errors.Cause(err) == errXLWriteQuorum {
@@ -507,14 +507,14 @@ func (xl xlObjects) PutObject(bucket string, object string, data *hash.Reader, m
 		}
 	}
 	// Get parity and data drive count based on storage class metadata
-	dataDrives, parityDrives := getRedundancyCount(metadata[amzStorageClass], len(xl.storageDisks))
+	dataDrives, parityDrives := getRedundancyCount(metadata[amzStorageClass], len(xl.storageDisks()))
 
 	// we now know the number of blocks this object needs for data and parity.
 	// writeQuorum is dataBlocks + 1
 	writeQuorum := dataDrives + 1
 
 	// Initialize parts metadata
-	partsMetadata := make([]xlMetaV1, len(xl.storageDisks))
+	partsMetadata := make([]xlMetaV1, len(xl.storageDisks()))
 
 	xlMeta := newXLMetaV1(object, dataDrives, parityDrives)
 
@@ -524,7 +524,7 @@ func (xl xlObjects) PutObject(bucket string, object string, data *hash.Reader, m
 	}
 
 	// Order disks according to erasure distribution
-	onlineDisks := shuffleDisks(xl.storageDisks, partsMetadata[0].Erasure.Distribution)
+	onlineDisks := shuffleDisks(xl.storageDisks(), partsMetadata[0].Erasure.Distribution)
 
 	// Delete temporary object in the event of failure.
 	// If PutObject succeeded there would be no temporary
@@ -621,7 +621,7 @@ func (xl xlObjects) PutObject(bucket string, object string, data *hash.Reader, m
 		// NOTE: Do not use online disks slice here.
 		// The reason is that existing object should be purged
 		// regardless of `xl.json` status and rolled back in case of errors.
-		_, err = renameObject(xl.storageDisks, bucket, object, minioMetaTmpBucket, newUniqueID, writeQuorum)
+		_, err = renameObject(xl.storageDisks(), bucket, object, minioMetaTmpBucket, newUniqueID, writeQuorum)
 		if err != nil {
 			return ObjectInfo{}, toObjectErr(err, bucket, object)
 		}
@@ -679,7 +679,7 @@ func (xl xlObjects) deleteObject(bucket, object string) error {
 	var wg = &sync.WaitGroup{}
 
 	// Read metadata associated with the object from all disks.
-	metaArr, errs := readAllXLMetadata(xl.storageDisks, bucket, object)
+	metaArr, errs := readAllXLMetadata(xl.storageDisks(), bucket, object)
 
 	// get Quorum for this object
 	_, writeQuorum, err := objectQuorumFromMeta(xl, metaArr, errs)
@@ -688,9 +688,9 @@ func (xl xlObjects) deleteObject(bucket, object string) error {
 	}
 
 	// Initialize list of errors.
-	var dErrs = make([]error, len(xl.storageDisks))
+	var dErrs = make([]error, len(xl.storageDisks()))
 
-	for index, disk := range xl.storageDisks {
+	for index, disk := range xl.storageDisks() {
 		if disk == nil {
 			dErrs[index] = errors.Trace(errDiskNotFound)
 			continue

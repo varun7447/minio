@@ -36,7 +36,7 @@ var globalDsyncs []*dsync.Dsync
 
 // Returns a unique dsync for a input name.
 func getHashedDsync(input string) *dsync.Dsync {
-	return globalDsyncs[hashOrderFirstElement(input, globalXLSets)-1]
+	return globalDsyncs[hashOrderFirstElement(input, globalXLSetCount)-1]
 }
 
 // Global lock servers

@@ -803,74 +803,74 @@ func (adminAPI adminAPIHandlers) HealUploadHandler(w http.ResponseWriter, r *htt
 // - bucket and object are both mandatory query parameters
 // Heal a given object, if present.
 func (adminAPI adminAPIHandlers) HealFormatHandler(w http.ResponseWriter, r *http.Request) {
-	// Get current object layer instance.
-	objectAPI := newObjectLayerFn()
-	if objectAPI == nil {
-		writeErrorResponse(w, ErrServerNotInitialized, r.URL)
-		return
-	}
+	// // Get current object layer instance.
+	// objectAPI := newObjectLayerFn()
+	// if objectAPI == nil {
+	// 	writeErrorResponse(w, ErrServerNotInitialized, r.URL)
+	// 	return
+	// }
 
-	// Validate request signature.
-	adminAPIErr := checkRequestAuthType(r, "", "", "")
-	if adminAPIErr != ErrNone {
-		writeErrorResponse(w, adminAPIErr, r.URL)
-		return
-	}
+	// // Validate request signature.
+	// adminAPIErr := checkRequestAuthType(r, "", "", "")
+	// if adminAPIErr != ErrNone {
+	// 	writeErrorResponse(w, adminAPIErr, r.URL)
+	// 	return
+	// }
 
-	// Check if this setup is an erasure code backend, since
-	// heal-format is only applicable to single node XL and
-	// distributed XL setup.
-	if !globalIsXL {
-		writeErrorResponse(w, ErrNotImplemented, r.URL)
-		return
-	}
+	// // Check if this setup is an erasure code backend, since
+	// // heal-format is only applicable to single node XL and
+	// // distributed XL setup.
+	// if !globalIsXL {
+	// 	writeErrorResponse(w, ErrNotImplemented, r.URL)
+	// 	return
+	// }
 
-	// if dry-run is set in query-params, return success as
-	// validations are successful so far.
-	vars := r.URL.Query()
-	if isDryRun(vars) {
-		writeSuccessResponseHeadersOnly(w)
-		return
-	}
+	// // if dry-run is set in query-params, return success as
+	// // validations are successful so far.
+	// vars := r.URL.Query()
+	// if isDryRun(vars) {
+	// 	writeSuccessResponseHeadersOnly(w)
+	// 	return
+	// }
 
-	// Create a new set of storage instances to heal format.json.
-	bootstrapDisks, err := initStorageDisks(globalEndpoints)
-	if err != nil {
-		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
-		return
-	}
+	// // Create a new set of storage instances to heal format.json.
+	// bootstrapDisks, err := initStorageDisks(globalEndpoints)
+	// if err != nil {
+	// 	writeErrorResponse(w, toAPIErrorCode(err), r.URL)
+	// 	return
+	// }
 
-	// Wrap into retrying disks
-	retryingDisks := initRetryableStorageDisks(bootstrapDisks,
-		time.Millisecond, time.Millisecond*5, globalStorageHealthCheckInterval, globalStorageRetryThreshold)
+	// // Wrap into retrying disks
+	// retryingDisks := initRetryableStorageDisks(bootstrapDisks,
+	// 	time.Millisecond, time.Millisecond*5, globalStorageHealthCheckInterval, globalStorageRetryThreshold)
 
-	// Heal format.json on available storage.
-	err = healFormatXL(retryingDisks)
-	if err != nil {
-		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
-		return
-	}
+	// // Heal format.json on available storage.
+	// err = healFormatXL(retryingDisks)
+	// if err != nil {
+	// 	writeErrorResponse(w, toAPIErrorCode(err), r.URL)
+	// 	return
+	// }
 
-	// Instantiate new object layer with newly formatted storage.
-	newObjectAPI, err := newXLObjects(retryingDisks)
-	if err != nil {
-		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
-		return
-	}
+	// // Instantiate new object layer with newly formatted storage.
+	// newObjectAPI, err := newXLObjects(retryingDisks)
+	// if err != nil {
+	// 	writeErrorResponse(w, toAPIErrorCode(err), r.URL)
+	// 	return
+	// }
 
-	// Set object layer with newly formatted storage to globalObjectAPI.
-	globalObjLayerMutex.Lock()
-	globalObjectAPI = newObjectAPI
-	globalObjLayerMutex.Unlock()
+	// // Set object layer with newly formatted storage to globalObjectAPI.
+	// globalObjLayerMutex.Lock()
+	// globalObjectAPI = newObjectAPI
+	// globalObjLayerMutex.Unlock()
 
-	// Shutdown storage belonging to old object layer instance.
-	objectAPI.Shutdown()
+	// // Shutdown storage belonging to old object layer instance.
+	// objectAPI.Shutdown()
 
-	// Inform peers to reinitialize storage with newly formatted storage.
-	reInitPeerDisks(globalAdminPeers)
+	// // Inform peers to reinitialize storage with newly formatted storage.
+	// reInitPeerDisks(globalAdminPeers)
 
-	// Return 200 on success.
-	writeSuccessResponseHeadersOnly(w)
+	// // Return 200 on success.
+	// writeSuccessResponseHeadersOnly(w)
 }
 
 // GetConfigHandler - GET /?config

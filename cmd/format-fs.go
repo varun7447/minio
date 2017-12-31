@@ -79,14 +79,14 @@ func formatFSSave(f *os.File, data interface{}) error {
 // Returns the field formatMetaV1.Format i.e the string "fs" which is never likely to change.
 // We do not use this function in XL to get the format as the file is not fcntl-locked on XL.
 func formatMetaGetFormatBackendFS(r io.ReadSeeker) (string, error) {
-	format := &formatMetaV1{}
-	if err := jsonLoadFromSeeker(r, format); err != nil {
+	meta := &formatMetaV1{}
+	if err := jsonLoadFromSeeker(r, meta); err != nil {
 		return "", err
 	}
-	if format.Version == formatMetaVersionV1 {
-		return format.Format, nil
+	if meta.Version == formatMetaVersionV1 {
+		return meta.Format, nil
 	}
-	return "", fmt.Errorf(`format.Version expected: %s, got: %s`, formatMetaVersionV1, format.Version)
+	return "", fmt.Errorf(`format.Version expected: %s, got: %s`, formatMetaVersionV1, meta.Version)
 }
 
 // Returns formatFS.FS.Version
