@@ -960,6 +960,7 @@ func (api objectAPIHandlers) ListObjectPartsHandler(w http.ResponseWriter, r *ht
 	}
 	listPartsInfo, err := objectAPI.ListObjectParts(bucket, object, uploadID, partNumberMarker, maxParts)
 	if err != nil {
+		errorIf(err, "ListObjectParts error")
 		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
 		return
 	}

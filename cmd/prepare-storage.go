@@ -65,7 +65,7 @@ func formatXLMigrateLocalEndpoints(endpoints EndpointList) error {
 }
 
 // Format disks before initialization of object layer.
-func waitForFormatXL(firstDisk bool, endpoints EndpointList, setCount, disksPerSet int) (format *formatXLV2, err error) {
+func waitForFormatXL(firstDisk bool, endpoints EndpointList, setCount, disksPerSet int) (format *formatXLV3, err error) {
 	if len(endpoints) == 0 || setCount == 0 || disksPerSet == 0 {
 		return nil, errInvalidArgument
 	}
@@ -125,7 +125,7 @@ func waitForFormatXL(firstDisk bool, endpoints EndpointList, setCount, disksPerS
 					if formatConfigs[i] == nil {
 						continue
 					}
-					if err = formatXLV2Check(format, formatConfigs[i]); err != nil {
+					if err = formatXLV3Check(format, formatConfigs[i]); err != nil {
 						return nil, fmt.Errorf("%s format error: %s", endpoints[i], err)
 					}
 				}
