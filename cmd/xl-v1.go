@@ -68,8 +68,8 @@ func newXLObjectLayer(storageDisks []StorageAPI) (ObjectLayer, error) {
 	err = initBucketPolicies(objAPI)
 	fatalIf(err, "Unable to load all bucket policies.")
 
-	// Initialize a new event notifier.
-	err = initEventNotifier(objAPI)
+	// Initialize notification system.
+	err = globalNotificationSys.Init(objAPI)
 	fatalIf(err, "Unable to initialize event notification.")
 
 	// Success.

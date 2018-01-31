@@ -148,18 +148,13 @@ func (s *adminCmd) ServerInfoData(args *AuthRPCArgs, reply *ServerInfoDataReply)
 	}
 	storageInfo := objLayer.StorageInfo()
 
-	var arns []string
-	for queueArn := range globalEventNotifier.GetAllExternalTargets() {
-		arns = append(arns, queueArn)
-	}
-
 	reply.ServerInfoData = ServerInfoData{
 		Properties: ServerProperties{
 			Uptime:   UTCNow().Sub(globalBootTime),
 			Version:  Version,
 			CommitID: CommitID,
 			Region:   globalServerConfig.GetRegion(),
-			SQSARN:   arns,
+			SQSARN:   globalNotificationSys.GetARNList(),
 		},
 		StorageInfo: storageInfo,
 		ConnStats:   globalConnStats.toServerConnStats(),

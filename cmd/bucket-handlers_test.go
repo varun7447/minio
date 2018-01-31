@@ -621,11 +621,6 @@ func testAPIDeleteMultipleObjectsHandler(obj ObjectLayer, instanceType, bucketNa
 	initBucketPolicies(obj)
 
 	var err error
-	// register event notifier.
-	err = initEventNotifier(obj)
-	if err != nil {
-		t.Fatal("Notifier initialization failed.")
-	}
 
 	contentBytes := []byte("hello")
 	sha256sum := ""

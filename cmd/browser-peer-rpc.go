@@ -71,11 +71,7 @@ func (br *browserPeerAPIHandlers) SetAuthPeer(args SetAuthPeerArgs, reply *AuthR
 
 // Sends SetAuthPeer RPCs to all peers in the Minio cluster
 func updateCredsOnPeers(creds auth.Credentials) map[string]error {
-	// Get list of peer addresses (from globalS3Peers)
-	peers := []string{}
-	for _, p := range globalS3Peers {
-		peers = append(peers, p.addr)
-	}
+	peers := GetRemotePeers(globalEndpoints)
 
 	// Array of errors for each peer
 	errs := make([]error, len(peers))

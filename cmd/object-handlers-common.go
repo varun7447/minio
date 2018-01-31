@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/minio/minio/pkg/event"
 )
 
 // Validates the preconditions for CopyObjectPart, returns true if CopyObjectPart
@@ -240,10 +242,10 @@ func deleteObject(obj ObjectLayer, bucket, object string, r *http.Request) (err 
 	host, port, _ := net.SplitHostPort(r.RemoteAddr)
 
 	// Notify object deleted event.
-	eventNotify(eventData{
-		Type:   ObjectRemovedDelete,
-		Bucket: bucket,
-		ObjInfo: ObjectInfo{
+	sendEvent(eventArgs{
+		EventName:  event.ObjectRemovedDelete,
+		BucketName: bucket,
+		Object: ObjectInfo{
 			Name: object,
 		},
 		ReqParams: extractReqParams(r),
