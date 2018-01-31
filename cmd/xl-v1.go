@@ -51,6 +51,11 @@ type xlObjects struct {
 	// TODO: Deprecated only kept here for tests, should be removed in future.
 	storageDisks []StorageAPI
 
+	// FIXME:
+	// // Initialize notification system.
+	// err = globalNotificationSys.Init(objAPI)
+	// fatalIf(err, "Unable to initialize event notification.")
+
 	// TODO: ListObjects pool management, should be removed in future.
 	listPool *treeWalkPool
 }

@@ -351,7 +351,10 @@ func UnstartedTestServer(t TestErrHandler, instanceType string) TestServer {
 	globalMinioHost = host
 	globalMinioPort = port
 	globalMinioAddr = getEndpointsLocalAddr(testServer.Disks)
-	initGlobalS3Peers(testServer.Disks)
+	globalNotificationSys, err = NewNotificationSys(globalServerConfig, testServer.Disks)
+	if err != nil {
+		t.Fatalf("Unable to initialize queue configuration")
+	}
 
 	return testServer
 }
@@ -511,11 +514,6 @@ func resetGlobalNSLock() {
 	}
 }
 
-// reset Global event notifier.
-func resetGlobalEventnotify() {
-	globalEventNotifier = nil
-}
-
 func resetGlobalEndpoints() {
 	globalEndpoints = EndpointList{}
 }
@@ -558,8 +556,6 @@ func resetTestGlobals() {
 	resetGlobalConfig()
 	// Reset global NSLock.
 	resetGlobalNSLock()
-	// Reset global event notifier.
-	resetGlobalEventnotify()
 	// Reset global endpoints.
 	resetGlobalEndpoints()
 	// Reset global isXL flag.
@@ -1637,18 +1633,6 @@ func getCompleteMultipartUploadURL(endPoint, bucketName, objectName, uploadID st
 	return makeTestTargetURL(endPoint, bucketName, objectName, queryValue)
 }
 
-// return URL for put bucket notification.
-func getPutBucketNotificationURL(endPoint, bucketName string) string {
-	return getGetBucketNotificationURL(endPoint, bucketName)
-}
-
-// return URL for get bucket notification.
-func getGetBucketNotificationURL(endPoint, bucketName string) string {
-	queryValue := url.Values{}
-	queryValue.Set("notification", "")
-	return makeTestTargetURL(endPoint, bucketName, "", queryValue)
-}
-
 // return URL for listen bucket notification.
 func getListenBucketNotificationURL(endPoint, bucketName string, prefixes, suffixes, events []string) string {
 	queryValue := url.Values{}
@@ -1730,6 +1714,10 @@ func newTestObjectLayer(endpoints EndpointList) (newObject ObjectLayer, err erro
 // initObjectLayer - Instantiates object layer and returns it.
 func initObjectLayer(endpoints EndpointList) (ObjectLayer, []StorageAPI, error) {
 	objLayer, err := newTestObjectLayer(endpoints)
+	if globalNotificationSys, err = NewNotificationSys(globalServerConfig, endpoints); err != nil {
+		return nil, nil, err
+	}
+
 	if err != nil {
 		return nil, nil, err
 	}

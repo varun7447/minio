@@ -169,8 +169,8 @@ func NewFSObjectLayer(fsPath string) (ObjectLayer, error) {
 		return nil, fmt.Errorf("Unable to load all bucket policies. %s", err)
 	}
 
-	// Initialize a new event notifier.
-	if err = initEventNotifier(fs); err != nil {
+	// Initialize notification system.
+	if err = globalNotificationSys.Init(fs); err != nil {
 		return nil, fmt.Errorf("Unable to initialize event notification. %s", err)
 	}
 

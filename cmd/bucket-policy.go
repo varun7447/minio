@@ -31,7 +31,7 @@ import (
 const (
 	// Static prefix to be used while constructing bucket ARN.
 	// refer to S3 docs for more info.
-	bucketARNPrefix = "arn:" + eventSource + ":::"
+	bucketARNPrefix = "arn:aws:s3:::"
 
 	// Bucket policy config name.
 	bucketPolicyConfig = "policy.json"
@@ -202,7 +202,13 @@ func persistAndNotifyBucketPolicyChange(bucket string, isRemove bool, bktPolicy 
 		}
 	}
 
-	// Notify all peers (including self) to update in-memory state
-	S3PeersUpdateBucketPolicy(bucket)
+	if err := globalBucketPolicies.SetBucketPolicy(bucket, pCh); err != nil {
+		return err
+	}
+
+	for addr, err := range globalNotificationSys.UpdateBucketPolicy(bucket, pCh) {
+		errorIf(err, "unable to update policy change in remote peer %v", addr)
+	}
+
 	return nil
 }

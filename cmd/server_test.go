@@ -75,13 +75,10 @@ func verifyError(c *check, response *http.Response, code, description string, st
 
 func runAllTests(suite *TestSuiteCommon, c *check) {
 	suite.SetUpSuite(c)
-	suite.TestBucketSQSNotificationWebHook(c)
 	suite.TestObjectDir(c)
-	suite.TestBucketSQSNotificationAMQP(c)
 	suite.TestBucketPolicy(c)
 	suite.TestDeleteBucket(c)
 	suite.TestDeleteBucketNotEmpty(c)
-	suite.TestListenBucketNotificationHandler(c)
 	suite.TestDeleteMultipleObjects(c)
 	suite.TestDeleteObject(c)
 	suite.TestNonExistentBucket(c)

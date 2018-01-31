@@ -139,11 +139,6 @@ func (lc localAdminClient) ServerInfoData() (sid ServerInfoData, e error) {
 	}
 	storage := objLayer.StorageInfo()
 
-	var arns []string
-	for queueArn := range globalEventNotifier.GetAllExternalTargets() {
-		arns = append(arns, queueArn)
-	}
-
 	return ServerInfoData{
 		StorageInfo: storage,
 		ConnStats:   globalConnStats.toServerConnStats(),
@@ -152,7 +147,7 @@ func (lc localAdminClient) ServerInfoData() (sid ServerInfoData, e error) {
 			Uptime:   UTCNow().Sub(globalBootTime),
 			Version:  Version,
 			CommitID: CommitID,
-			SQSARN:   arns,
+			SQSARN:   globalNotificationSys.GetARNList(),
 			Region:   globalServerConfig.GetRegion(),
 		},
 	}, nil

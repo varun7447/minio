@@ -38,6 +38,11 @@ func handleSignals() {
 	stopProcess := func() bool {
 		var err, oerr error
 
+		// globalNotificationSys is not initialized in gateway mode.
+		if globalNotificationSys != nil {
+			globalNotificationSys.RemoveAllRemoteTargets()
+		}
+
 		err = globalHTTPServer.Shutdown()
 		errorIf(err, "Unable to shutdown http server")
 

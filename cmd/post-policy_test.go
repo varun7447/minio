@@ -123,12 +123,6 @@ func testPostPolicyBucketHandler(obj ObjectLayer, instanceType string, t TestErr
 	}
 	defer os.RemoveAll(root)
 
-	// Register event notifier.
-	err = initEventNotifier(obj)
-	if err != nil {
-		t.Fatalf("Initializing event notifiers failed")
-	}
-
 	// get random bucket name.
 	bucketName := getRandomBucketName()
 
@@ -430,12 +424,6 @@ func testPostPolicyBucketHandlerRedirect(obj ObjectLayer, instanceType string, t
 		t.Fatalf("Initializing config.json failed")
 	}
 	defer os.RemoveAll(root)
-
-	// Register event notifier.
-	err = initEventNotifier(obj)
-	if err != nil {
-		t.Fatalf("Initializing event notifiers failed")
-	}
 
 	// get random bucket name.
 	bucketName := getRandomBucketName()

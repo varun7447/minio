@@ -23,6 +23,7 @@ import (
 
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/errors"
+	"github.com/minio/minio/pkg/event"
 	"github.com/minio/minio/pkg/hash"
 )
 
@@ -944,6 +945,28 @@ func toAPIErrorCode(err error) (apiErr APIErrorCode) {
 		apiErr = ErrPartsSizeUnequal
 	case BucketPolicyNotFound:
 		apiErr = ErrNoSuchBucketPolicy
+	case event.ErrInvalidEventName:
+		apiErr = ErrEventNotification
+	case event.ErrInvalidARN:
+		apiErr = ErrARNNotification
+	case event.ErrARNNotFound:
+		apiErr = ErrARNNotification
+	case event.ErrUnknownRegion:
+		apiErr = ErrRegionNotification
+	case event.ErrInvalidFilterName:
+		apiErr = ErrFilterNameInvalid
+	case event.ErrFilterNamePrefix:
+		apiErr = ErrFilterNamePrefix
+	case event.ErrFilterNameSuffix:
+		apiErr = ErrFilterNameSuffix
+	case event.ErrInvalidFilterValue:
+		apiErr = ErrFilterValueInvalid
+	case event.ErrDuplicateEventName:
+		apiErr = ErrOverlappingConfigs
+	case event.ErrDuplicateQueueConfiguration:
+		apiErr = ErrOverlappingFilterNotification
+	case event.ErrUnsupportedConfiguration:
+		apiErr = ErrUnsupportedNotification
 	default:
 		apiErr = ErrInternalError
 	}
