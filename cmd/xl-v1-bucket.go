@@ -277,7 +277,6 @@ func (xl xlObjects) DeleteBucket(bucket string) error {
 	if err != nil {
 		return toObjectErr(err, bucket)
 	}
-
 	return nil
 }
 

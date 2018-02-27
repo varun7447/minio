@@ -348,10 +348,8 @@ func (fs *FSObjects) DeleteBucket(bucket string) error {
 	if err = fsRemoveAll(minioMetadataBucketDir); err != nil {
 		return toObjectErr(err, bucket)
 	}
-
 	// Delete all bucket metadata.
 	deleteBucketMetadata(bucket, fs)
-
 	return nil
 }
 
