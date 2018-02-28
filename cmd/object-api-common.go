@@ -85,23 +85,35 @@ func dirObjectInfo(bucket, object string, size int64, metadata map[string]string
 	}
 }
 
+// Removes notification.xml for a given bucket, only used during DeleteBucket.
+func removeNotificationConfig(bucket string, objAPI ObjectLayer) error {
+	// Verify bucket is valid.
+	if !IsValidBucketName(bucket) {
+		return BucketNameInvalid{Bucket: bucket}
+	}
+
+	ncPath := path.Join(bucketConfigPrefix, bucket, bucketNotificationConfig)
+
+	return objAPI.DeleteObject(minioMetaBucket, ncPath)
+}
+
+// Remove listener configuration from storage layer. Used when a bucket is deleted.
+func removeListenerConfig(bucket string, objAPI ObjectLayer) error {
+	// make the path
+	lcPath := path.Join(bucketConfigPrefix, bucket, bucketListenerConfig)
+
+	return objAPI.DeleteObject(minioMetaBucket, lcPath)
+}
+
 func deleteBucketMetadata(bucket string, objAPI ObjectLayer) {
 	// Delete bucket access policy, if present - ignore any errors.
-	_ = removeBucketPolicy(bucket, objAPI)
-
-	// Notify all peers (including self) to update in-memory state
-	S3PeersUpdateBucketPolicy(bucket)
+	_ = objAPI.DeleteBucketPolicy(bucket)
 
 	// Delete notification config, if present - ignore any errors.
 	_ = removeNotificationConfig(bucket, objAPI)
 
-	// Notify all peers (including self) to update in-memory state
-	S3PeersUpdateBucketNotification(bucket, nil)
 	// Delete listener config, if present - ignore any errors.
 	_ = removeListenerConfig(bucket, objAPI)
-
-	// Notify all peers (including self) to update in-memory state
-	S3PeersUpdateBucketListener(bucket, []listenerConfig{})
 }
 
 // House keeping code for FS/XL and distributed Minio setup.

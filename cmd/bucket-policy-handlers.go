@@ -285,6 +285,10 @@ func (api objectAPIHandlers) PutBucketPolicyHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
+	for addr, err := range globalNotificationSys.UpdateBucketPolicy(bucket) {
+		errorIf(err, "unable to update policy change in remote peer %v", addr)
+	}
+
 	// Success.
 	writeSuccessNoContent(w)
 }

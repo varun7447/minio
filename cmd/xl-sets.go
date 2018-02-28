@@ -228,10 +228,9 @@ func newXLSets(endpoints EndpointList, format *formatXLV2, setCount int, drivesP
 		return nil, err
 	}
 
-	// Initialize a new event notifier.
-	if err := initEventNotifier(s); err != nil {
-		return nil, err
-	}
+	// Initialize notification system.
+	err = globalNotificationSys.Init(s)
+	errorIf(err, "Unable to initialize event notification.")
 
 	// Start the disk monitoring and connect routine.
 	go s.monitorAndConnectEndpoints(globalServiceDoneCh, defaultMonitorConnectEndpointInterval)
