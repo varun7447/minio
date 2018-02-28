@@ -35,11 +35,6 @@ var bucketMetadataOpIgnoredErrs = append(bucketOpIgnoredErrs, errVolumeNotFound)
 
 // MakeBucket - make a bucket.
 func (xl xlObjects) MakeBucketWithLocation(bucket, location string) error {
-	bucketLock := xl.nsMutex.NewNSLock(bucket, "")
-	if err := bucketLock.GetLock(globalObjectTimeout); err != nil {
-		return err
-	}
-	defer bucketLock.Unlock()
 	// Verify if bucket is valid.
 	if !IsValidBucketName(bucket) {
 		return errors.Trace(BucketNameInvalid{Bucket: bucket})
@@ -49,10 +44,10 @@ func (xl xlObjects) MakeBucketWithLocation(bucket, location string) error {
 	var wg = &sync.WaitGroup{}
 
 	// Initialize list of errors.
-	var dErrs = make([]error, len(xl.storageDisks))
+	var dErrs = make([]error, len(xl.getDisks()))
 
 	// Make a volume entry on all underlying storage disks.
-	for index, disk := range xl.storageDisks {
+	for index, disk := range xl.getDisks() {
 		if disk == nil {
 			dErrs[index] = errors.Trace(errDiskNotFound)
 			continue
@@ -71,11 +66,11 @@ func (xl xlObjects) MakeBucketWithLocation(bucket, location string) error {
 	// Wait for all make vol to finish.
 	wg.Wait()
 
-	writeQuorum := len(xl.storageDisks)/2 + 1
+	writeQuorum := len(xl.getDisks())/2 + 1
 	err := reduceWriteQuorumErrs(dErrs, bucketOpIgnoredErrs, writeQuorum)
 	if errors.Cause(err) == errXLWriteQuorum {
 		// Purge successfully created buckets if we don't have writeQuorum.
-		undoMakeBucket(xl.storageDisks, bucket)
+		undoMakeBucket(xl.getDisks(), bucket)
 	}
 	return toObjectErr(err, bucket)
 }
@@ -84,7 +79,7 @@ func (xl xlObjects) undoDeleteBucket(bucket string) {
 	// Initialize sync waitgroup.
 	var wg = &sync.WaitGroup{}
 	// Undo previous make bucket entry on all underlying storage disks.
-	for index, disk := range xl.storageDisks {
+	for index, disk := range xl.getDisks() {
 		if disk == nil {
 			continue
 		}
@@ -150,7 +145,7 @@ func (xl xlObjects) getBucketInfo(bucketName string) (bucketInfo BucketInfo, err
 	// reduce to one error based on read quorum.
 	// `nil` is deliberately passed for ignoredErrs
 	// because these errors were already ignored.
-	readQuorum := len(xl.storageDisks) / 2
+	readQuorum := len(xl.getDisks()) / 2
 	return BucketInfo{}, reduceReadQuorumErrs(bucketErrs, nil, readQuorum)
 }
 
@@ -240,10 +235,10 @@ func (xl xlObjects) DeleteBucket(bucket string) error {
 
 	// Collect if all disks report volume not found.
 	var wg = &sync.WaitGroup{}
-	var dErrs = make([]error, len(xl.storageDisks))
+	var dErrs = make([]error, len(xl.getDisks()))
 
 	// Remove a volume entry on all underlying storage disks.
-	for index, disk := range xl.storageDisks {
+	for index, disk := range xl.getDisks() {
 		if disk == nil {
 			dErrs[index] = errors.Trace(errDiskNotFound)
 			continue
@@ -273,7 +268,8 @@ func (xl xlObjects) DeleteBucket(bucket string) error {
 
 	// Wait for all the delete vols to finish.
 	wg.Wait()
-	writeQuorum := len(xl.storageDisks)/2 + 1
+
+	writeQuorum := len(xl.getDisks())/2 + 1
 	err := reduceWriteQuorumErrs(dErrs, bucketOpIgnoredErrs, writeQuorum)
 	if errors.Cause(err) == errXLWriteQuorum {
 		xl.undoDeleteBucket(bucket)
@@ -281,22 +277,6 @@ func (xl xlObjects) DeleteBucket(bucket string) error {
 	if err != nil {
 		return toObjectErr(err, bucket)
 	}
-	// Delete bucket access policy, if present - ignore any errors.
-	_ = removeBucketPolicy(bucket, xl)
-
-	// Notify all peers (including self) to update in-memory state
-	S3PeersUpdateBucketPolicy(bucket)
-
-	// Delete notification config, if present - ignore any errors.
-	_ = removeNotificationConfig(bucket, xl)
-
-	// Notify all peers (including self) to update in-memory state
-	S3PeersUpdateBucketNotification(bucket, nil)
-	// Delete listener config, if present - ignore any errors.
-	_ = removeListenerConfig(bucket, xl)
-
-	// Notify all peers (including self) to update in-memory state
-	S3PeersUpdateBucketListener(bucket, []listenerConfig{})
 
 	return nil
 }
@@ -311,7 +291,7 @@ func (xl xlObjects) GetBucketPolicy(bucket string) (policy.BucketAccessPolicy, e
 	// fetch bucket policy from cache.
 	bpolicy := xl.bucketPolicies.GetBucketPolicy(bucket)
 	if reflect.DeepEqual(bpolicy, emptyBucketPolicy) {
-		return readBucketPolicy(bucket, xl)
+		return ReadBucketPolicy(bucket, xl)
 	}
 	return bpolicy, nil
 }
@@ -323,7 +303,7 @@ func (xl xlObjects) DeleteBucketPolicy(bucket string) error {
 
 // RefreshBucketPolicy refreshes policy cache from disk
 func (xl xlObjects) RefreshBucketPolicy(bucket string) error {
-	policy, err := readBucketPolicy(bucket, xl)
+	policy, err := ReadBucketPolicy(bucket, xl)
 
 	if err != nil {
 		if reflect.DeepEqual(policy, emptyBucketPolicy) {

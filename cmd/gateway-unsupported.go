@@ -39,7 +39,7 @@ func (a GatewayUnsupported) NewMultipartUpload(bucket string, object string, met
 }
 
 // CopyObjectPart copy part of object to uploadID for another object
-func (a GatewayUnsupported) CopyObjectPart(srcBucket, srcObject, destBucket, destObject, uploadID string, partID int, startOffset, length int64, metadata map[string]string, srcETag string) (pi PartInfo, err error) {
+func (a GatewayUnsupported) CopyObjectPart(srcBucket, srcObject, destBucket, destObject, uploadID string, partID int, startOffset, length int64, srcInfo ObjectInfo) (pi PartInfo, err error) {
 	return pi, errors.Trace(NotImplemented{})
 }
 
@@ -78,6 +78,11 @@ func (a GatewayUnsupported) DeleteBucketPolicy(bucket string) error {
 	return errors.Trace(NotImplemented{})
 }
 
+// HealFormat - Not implemented stub
+func (a GatewayUnsupported) HealFormat(dryRun bool) (madmin.HealResultItem, error) {
+	return madmin.HealResultItem{}, errors.Trace(NotImplemented{})
+}
+
 // HealBucket - Not implemented stub
 func (a GatewayUnsupported) HealBucket(bucket string, dryRun bool) ([]madmin.HealResultItem, error) {
 	return nil, errors.Trace(NotImplemented{})
@@ -105,7 +110,7 @@ func (a GatewayUnsupported) ListObjectsHeal(bucket, prefix, marker, delimiter st
 
 // CopyObject copies a blob from source container to destination container.
 func (a GatewayUnsupported) CopyObject(srcBucket string, srcObject string, destBucket string, destObject string,
-	metadata map[string]string, srcEtag string) (objInfo ObjectInfo, err error) {
+	srcInfo ObjectInfo) (objInfo ObjectInfo, err error) {
 	return objInfo, errors.Trace(NotImplemented{})
 }
 

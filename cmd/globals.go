@@ -74,6 +74,12 @@ const (
 )
 
 var (
+	// Indicates the total number of erasure coded sets configured.
+	globalXLSetCount int
+
+	// Indicates set drive count.
+	globalXLSetDriveCount int
+
 	// Indicates if the running minio server is distributed setup.
 	globalIsDistXL = false
 
@@ -161,8 +167,8 @@ var (
 	// Set to store standard storage class
 	globalStandardStorageClass storageClass
 
-	// RPC version.
-	globalRPCAPIVersion = semVersion{1, 0, 0}
+	// Current RPC version
+	globalRPCAPIVersion = semVersion{2, 0, 0}
 
 	// Add new variable global values here.
 )

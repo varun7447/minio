@@ -24,6 +24,7 @@ import (
 	slashpath "path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -43,6 +44,7 @@ type posix struct {
 	ioErrCount int32 // ref: https://golang.org/pkg/sync/atomic/#pkg-note-BUG
 	diskPath   string
 	pool       sync.Pool
+	connected  bool
 }
 
 // checkPathLength - returns error if given path name length more than 255
@@ -137,6 +139,8 @@ func newPosix(path string) (StorageAPI, error) {
 		return nil, err
 	}
 
+	st.connected = true
+
 	// Success.
 	return st, nil
 }
@@ -218,14 +222,13 @@ func (s *posix) String() string {
 	return s.diskPath
 }
 
-// Init - this is a dummy call.
-func (s *posix) Init() error {
+func (s *posix) Close() error {
+	s.connected = false
 	return nil
 }
 
-// Close - this is a dummy call.
-func (s *posix) Close() error {
-	return nil
+func (s *posix) IsOnline() bool {
+	return s.connected
 }
 
 // DiskInfo provides current information about disk space usage,
@@ -249,6 +252,9 @@ func (s *posix) getVolDir(volume string) (string, error) {
 // checkDiskFound - validates if disk is available,
 // returns errDiskNotFound if not found.
 func (s *posix) checkDiskFound() (err error) {
+	if !s.IsOnline() {
+		return errDiskNotFound
+	}
 	_, err = os.Stat((s.diskPath))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -855,9 +861,13 @@ func deleteFile(basePath, deletePath string) error {
 		return err
 	}
 
-	// Recursively go down the next path and delete again.
-	// Errors for parent directories shouldn't trickle down.
-	deleteFile(basePath, slashpath.Dir(deletePath))
+	// Trailing slash is removed when found to ensure
+	// slashpath.Dir() to work as intended.
+	deletePath = strings.TrimSuffix(deletePath, slashSeparator)
+	deletePath = slashpath.Dir(deletePath)
+
+	// Delete parent directory. Errors for parent directories shouldn't trickle down.
+	deleteFile(basePath, deletePath)
 
 	return nil
 }
@@ -927,14 +937,14 @@ func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err e
 		return err
 	}
 	// Stat a volume entry.
-	_, err = os.Stat((srcVolumeDir))
+	_, err = os.Stat(srcVolumeDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return errVolumeNotFound
 		}
 		return err
 	}
-	_, err = os.Stat((dstVolumeDir))
+	_, err = os.Stat(dstVolumeDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return errVolumeNotFound
@@ -948,23 +958,24 @@ func (s *posix) RenameFile(srcVolume, srcPath, dstVolume, dstPath string) (err e
 		return errFileAccessDenied
 	}
 	srcFilePath := slashpath.Join(srcVolumeDir, srcPath)
-	if err = checkPathLength((srcFilePath)); err != nil {
+	if err = checkPathLength(srcFilePath); err != nil {
 		return err
 	}
 	dstFilePath := slashpath.Join(dstVolumeDir, dstPath)
-	if err = checkPathLength((dstFilePath)); err != nil {
+	if err = checkPathLength(dstFilePath); err != nil {
 		return err
 	}
 	if srcIsDir {
-		// If source is a directory we expect the destination to be non-existent always.
-		_, err = os.Stat((dstFilePath))
-		if err == nil {
+		// If source is a directory, we expect the destination to be non-existent but we
+		// we still need to allow overwriting an empty directory since it represents
+		// an object empty directory.
+		_, err = os.Stat(dstFilePath)
+		if err == nil && !isDirEmpty(dstFilePath) {
 			return errFileAccessDenied
 		}
 		if !os.IsNotExist(err) {
 			return err
 		}
-		// Destination does not exist, hence proceed with the rename.
 	}
 
 	if err = renameAll(srcFilePath, dstFilePath); err != nil {

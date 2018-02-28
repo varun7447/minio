@@ -85,6 +85,25 @@ func dirObjectInfo(bucket, object string, size int64, metadata map[string]string
 	}
 }
 
+func deleteBucketMetadata(bucket string, objAPI ObjectLayer) {
+	// Delete bucket access policy, if present - ignore any errors.
+	_ = removeBucketPolicy(bucket, objAPI)
+
+	// Notify all peers (including self) to update in-memory state
+	S3PeersUpdateBucketPolicy(bucket)
+
+	// Delete notification config, if present - ignore any errors.
+	_ = removeNotificationConfig(bucket, objAPI)
+
+	// Notify all peers (including self) to update in-memory state
+	S3PeersUpdateBucketNotification(bucket, nil)
+	// Delete listener config, if present - ignore any errors.
+	_ = removeListenerConfig(bucket, objAPI)
+
+	// Notify all peers (including self) to update in-memory state
+	S3PeersUpdateBucketListener(bucket, []listenerConfig{})
+}
+
 // House keeping code for FS/XL and distributed Minio setup.
 func houseKeeping(storageDisks []StorageAPI) error {
 	var wg = &sync.WaitGroup{}
@@ -138,69 +157,6 @@ func newStorageAPI(endpoint Endpoint) (storage StorageAPI, err error) {
 	}
 
 	return newStorageRPC(endpoint), nil
-}
-
-var initMetaVolIgnoredErrs = append(baseIgnoredErrs, errVolumeExists)
-
-// Initializes meta volume on all input storage disks.
-func initMetaVolume(storageDisks []StorageAPI) error {
-	// This happens for the first time, but keep this here since this
-	// is the only place where it can be made expensive optimizing all
-	// other calls. Create minio meta volume, if it doesn't exist yet.
-	var wg = &sync.WaitGroup{}
-
-	// Initialize errs to collect errors inside go-routine.
-	var errs = make([]error, len(storageDisks))
-
-	// Initialize all disks in parallel.
-	for index, disk := range storageDisks {
-		if disk == nil {
-			// Ignore create meta volume on disks which are not found.
-			continue
-		}
-		wg.Add(1)
-		go func(index int, disk StorageAPI) {
-			// Indicate this wait group is done.
-			defer wg.Done()
-
-			// Attempt to create `.minio.sys`.
-			err := disk.MakeVol(minioMetaBucket)
-			if err != nil {
-				if !errors.IsErrIgnored(err, initMetaVolIgnoredErrs...) {
-					errs[index] = err
-					return
-				}
-			}
-			err = disk.MakeVol(minioMetaTmpBucket)
-			if err != nil {
-				if !errors.IsErrIgnored(err, initMetaVolIgnoredErrs...) {
-					errs[index] = err
-					return
-				}
-			}
-			err = disk.MakeVol(minioMetaMultipartBucket)
-			if err != nil {
-				if !errors.IsErrIgnored(err, initMetaVolIgnoredErrs...) {
-					errs[index] = err
-					return
-				}
-			}
-		}(index, disk)
-	}
-
-	// Wait for all cleanup to finish.
-	wg.Wait()
-
-	// Return upon first error.
-	for _, err := range errs {
-		if err == nil {
-			continue
-		}
-		return toObjectErr(err, minioMetaBucket)
-	}
-
-	// Return success here.
-	return nil
 }
 
 // Cleanup a directory recursively.

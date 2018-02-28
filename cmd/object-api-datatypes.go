@@ -16,7 +16,13 @@
 
 package cmd
 
-import "time"
+import (
+	"io"
+	"time"
+
+	"github.com/minio/minio/pkg/hash"
+	"github.com/minio/minio/pkg/madmin"
+)
 
 // BackendType - represents different backend types.
 type BackendType int
@@ -45,8 +51,13 @@ type StorageInfo struct {
 		// Following fields are only meaningful if BackendType is Erasure.
 		OnlineDisks      int // Online disks during server startup.
 		OfflineDisks     int // Offline disks during server startup.
+		StandardSCData   int // Data disks for currently configured Standard storage class.
 		StandardSCParity int // Parity disks for currently configured Standard storage class.
+		RRSCData         int // Data disks for currently configured Reduced Redundancy storage class.
 		RRSCParity       int // Parity disks for currently configured Reduced Redundancy storage class.
+
+		// List of all disk status, this is only meaningful if BackendType is Erasure.
+		Sets [][]madmin.DriveInfo
 	}
 }
 
@@ -89,6 +100,11 @@ type ObjectInfo struct {
 
 	// User-Defined metadata
 	UserDefined map[string]string
+
+	// Implements writer and reader used by CopyObject API
+	Writer       io.WriteCloser `json:"-"`
+	Reader       *hash.Reader   `json:"-"`
+	metadataOnly bool
 }
 
 // ListPartsInfo - represents list of all parts.
