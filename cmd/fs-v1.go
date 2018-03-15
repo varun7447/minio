@@ -325,7 +325,7 @@ func (fs *FSObjects) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 func (fs *FSObjects) DeleteBucket(ctx context.Context, bucket string) error {
 	bucketLock := fs.nsMutex.NewNSLock(bucket, "")
 	if err := bucketLock.GetLock(globalObjectTimeout); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer bucketLock.Unlock()
 	bucketDir, err := fs.getBucketDir(bucket)
@@ -458,7 +458,7 @@ func (fs *FSObjects) GetObject(ctx context.Context, bucket, object string, offse
 	// Lock the object before reading.
 	objectLock := fs.nsMutex.NewNSLock(bucket, object)
 	if err := objectLock.GetRLock(globalObjectTimeout); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer objectLock.RUnlock()
 	return fs.getObject(bucket, object, offset, length, writer, etag, true)
@@ -551,7 +551,7 @@ func (fs *FSObjects) getObjectInfo(bucket, object string) (oi ObjectInfo, e erro
 		if hasSuffix(object, slashSeparator) {
 			return fsMeta.ToObjectInfo(bucket, object, fi), nil
 		}
-		return oi, toObjectErr(errFileNotFound, bucket, object)
+		return oi, toObjectErr(errors.Trace(errFileNotFound), bucket, object)
 	}
 
 	fsMetaPath := pathJoin(fs.fsPath, minioMetaBucket, bucketMetaPrefix, bucket, object, fsMetaJSONFile)
@@ -637,7 +637,7 @@ func (fs *FSObjects) PutObject(ctx context.Context, bucket string, object string
 	// Lock the object.
 	objectLock := fs.nsMutex.NewNSLock(bucket, object)
 	if err := objectLock.GetLock(globalObjectTimeout); err != nil {
-		return objInfo, err
+		return objInfo, errors.Trace(err)
 	}
 	defer objectLock.Unlock()
 	return fs.putObject(bucket, object, data, metadata)
@@ -938,7 +938,7 @@ func (fs *FSObjects) ListObjects(ctx context.Context, bucket, prefix, marker, de
 		// Protect the entry from concurrent deletes, or renames.
 		objectLock := fs.nsMutex.NewNSLock(bucket, entry)
 		if err = objectLock.GetRLock(globalListingTimeout); err != nil {
-			return ObjectInfo{}, err
+			return ObjectInfo{}, errors.Trace(err)
 		}
 		defer objectLock.RUnlock()
 		return fs.getObjectInfo(bucket, entry)
@@ -980,7 +980,6 @@ func (fs *FSObjects) ListObjects(ctx context.Context, bucket, prefix, marker, de
 		}
 		objInfo, err := entryToObjectInfo(walkResult.entry)
 		if err != nil {
-			errorIf(err, "Unable to fetch object info for %s", walkResult.entry)
 			return loi, nil
 		}
 		nextMarker = objInfo.Name

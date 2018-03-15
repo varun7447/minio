@@ -219,12 +219,12 @@ func apiGet(addr, call, apiPassword string) (*http.Response, error) {
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		resp.Body.Close()
-		return nil, MethodNotSupported{call}
+		return nil, errors.Trace(MethodNotSupported{call})
 	}
 	if non2xx(resp.StatusCode) {
 		err := decodeError(resp)
 		resp.Body.Close()
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return resp, nil
 }
@@ -280,10 +280,10 @@ func list(addr string, apiPassword string, obj *renterFiles) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		return fmt.Errorf("Expecting a response, but API returned %s", resp.Status)
+		return errors.Trace(fmt.Errorf("Expecting a response, but API returned %s", resp.Status))
 	}
 
-	return json.NewDecoder(resp.Body).Decode(obj)
+	return errors.Trace(json.NewDecoder(resp.Body).Decode(obj))
 }
 
 // get makes an API call and discards the response. An error is returned if the
@@ -588,7 +588,6 @@ func (s *siaObjects) deleteTempFileWhenUploadCompletes(tempFile string, bucket, 
 		var err error
 		soi, err = s.findSiaObject(bucket, object)
 		if err != nil {
-			minio.ErrorIf(err, "Unable to find file uploaded to Sia path %s/%s", bucket, object)
 			break
 		}
 

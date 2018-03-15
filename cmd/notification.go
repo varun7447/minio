@@ -509,7 +509,8 @@ func readNotificationConfig(objAPI ObjectLayer, bucketName string) (*event.Confi
 		return nil, err
 	}
 
-	return event.ParseConfig(reader, globalServerConfig.GetRegion(), globalNotificationSys.targetList)
+	config, err := event.ParseConfig(reader, globalServerConfig.GetRegion(), globalNotificationSys.targetList)
+	return config, xerrors.Trace(err)
 }
 
 func saveNotificationConfig(objAPI ObjectLayer, bucketName string, config *event.Config) error {

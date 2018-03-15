@@ -479,7 +479,6 @@ func (api objectAPIHandlers) PostPolicyBucketHandler(w http.ResponseWriter, r *h
 	// Read multipart data and save in memory and in the disk if needed
 	form, err := reader.ReadForm(maxFormMemory)
 	if err != nil {
-		errorIf(err, "Unable to initialize multipart reader.")
 		writeErrorResponse(w, ErrMalformedPOSTRequest, r.URL)
 		return
 	}
@@ -490,7 +489,6 @@ func (api objectAPIHandlers) PostPolicyBucketHandler(w http.ResponseWriter, r *h
 	// Extract all form fields
 	fileBody, fileName, fileSize, formValues, err := extractPostPolicyFormValues(form)
 	if err != nil {
-		errorIf(err, "Unable to parse form values.")
 		writeErrorResponse(w, ErrMalformedPOSTRequest, r.URL)
 		return
 	}
@@ -567,7 +565,6 @@ func (api objectAPIHandlers) PostPolicyBucketHandler(w http.ResponseWriter, r *h
 	// Extract metadata to be saved from received Form.
 	metadata, err := extractMetadataFromHeader(formValues)
 	if err != nil {
-		errorIf(err, "found invalid http request header")
 		writeErrorResponse(w, ErrInternalError, r.URL)
 		return
 	}

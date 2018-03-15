@@ -149,7 +149,7 @@ func (a adminAPIHandlers) ServiceStopNRestartHandler(w http.ResponseWriter, r *h
 		serviceSig = serviceStop
 	default:
 		writeErrorResponseJSON(w, ErrMalformedPOSTRequest, r.URL)
-		errorIf(err, "Invalid service action received")
+		errorIf(fmt.Errorf("Invalid service action received"), "Invalid service action received")
 		return
 	}
 

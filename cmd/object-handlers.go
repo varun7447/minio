@@ -172,7 +172,6 @@ func (api objectAPIHandlers) GetObjectHandler(w http.ResponseWriter, r *http.Req
 
 	// Reads the object at startOffset and writes to httpWriter.
 	if err = objectAPI.GetObject(ctx, bucket, object, startOffset, length, httpWriter, objInfo.ETag); err != nil {
-		errorIf(err, "Unable to write to client.")
 		if !httpWriter.HasWritten() { // write error response only if no data has been written to client yet
 			writeErrorResponse(w, toAPIErrorCode(err), r.URL)
 		}
@@ -482,7 +481,6 @@ func (api objectAPIHandlers) CopyObjectHandler(w http.ResponseWriter, r *http.Re
 	srcInfo.UserDefined, err = getCpObjMetadataFromHeader(r.Header, srcInfo.UserDefined)
 	if err != nil {
 		pipeWriter.CloseWithError(err)
-		errorIf(err, "found invalid http request header")
 		writeErrorResponse(w, ErrInternalError, r.URL)
 		return
 	}
@@ -603,7 +601,6 @@ func (api objectAPIHandlers) PutObjectHandler(w http.ResponseWriter, r *http.Req
 	// Extract metadata to be saved from incoming HTTP header.
 	metadata, err := extractMetadataFromHeader(r.Header)
 	if err != nil {
-		errorIf(err, "found invalid http request header")
 		writeErrorResponse(w, ErrInternalError, r.URL)
 		return
 	}
@@ -780,7 +777,6 @@ func (api objectAPIHandlers) NewMultipartUploadHandler(w http.ResponseWriter, r 
 	// Extract metadata that needs to be saved.
 	metadata, err := extractMetadataFromHeader(r.Header)
 	if err != nil {
-		errorIf(err, "found invalid http request header")
 		writeErrorResponse(w, ErrInternalError, r.URL)
 		return
 	}
@@ -1192,7 +1188,6 @@ func (api objectAPIHandlers) AbortMultipartUploadHandler(w http.ResponseWriter, 
 
 	uploadID, _, _, _ := getObjectResources(r.URL.Query())
 	if err := objectAPI.AbortMultipartUpload(ctx, bucket, object, uploadID); err != nil {
-		errorIf(err, "AbortMultipartUpload failed")
 		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
 		return
 	}
@@ -1360,8 +1355,6 @@ func (api objectAPIHandlers) DeleteObjectHandler(w http.ResponseWriter, r *http.
 	// Ignore delete object errors while replying to client, since we are
 	// suppposed to reply only 204. Additionally log the error for
 	// investigation.
-	if err := deleteObject(ctx, objectAPI, bucket, object, r); err != nil {
-		errorIf(err, "Unable to delete an object %s", pathJoin(bucket, object))
-	}
+	deleteObject(ctx, objectAPI, bucket, object, r)
 	writeSuccessNoContent(w)
 }

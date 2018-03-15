@@ -61,7 +61,6 @@ func handleSignals() {
 			var oerr error
 			if objAPI := newObjectLayerFn(); objAPI != nil {
 				oerr = objAPI.Shutdown(context.Background())
-				errorIf(oerr, "Unable to shutdown object layer")
 			}
 
 			exit(err == nil && oerr == nil)

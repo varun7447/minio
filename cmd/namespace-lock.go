@@ -170,9 +170,7 @@ func (n *nsLockMap) lock(volume, path string, lockSource, opsID string, readLock
 	// pair of <volume, path> and <OperationID> till the lock
 	// unblocks. The lock for accessing `globalNSMutex` is held inside
 	// the function itself.
-	if err := n.statusNoneToBlocked(param, lockSource, opsID, readLock); err != nil {
-		errorIf(err, fmt.Sprintf("Failed to set lock state to blocked (param = %v; opsID = %s)", param, opsID))
-	}
+	n.statusNoneToBlocked(param, lockSource, opsID, readLock)
 
 	// Unlock map before Locking NS which might block.
 	n.lockMapMutex.Unlock()
@@ -188,26 +186,19 @@ func (n *nsLockMap) lock(volume, path string, lockSource, opsID string, readLock
 		n.lockMapMutex.Lock()
 		defer n.lockMapMutex.Unlock()
 		// Changing the status of the operation from blocked to none
-		if err := n.statusBlockedToNone(param, lockSource, opsID, readLock); err != nil {
-			errorIf(err, fmt.Sprintf("Failed to clear the lock state (param = %v; opsID = %s)", param, opsID))
-		}
+		n.statusBlockedToNone(param, lockSource, opsID, readLock)
 
 		nsLk.ref-- // Decrement ref count since we failed to get the lock
 		// delete the lock state entry for given operation ID.
-		err := n.deleteLockInfoEntryForOps(param, opsID)
-		if err != nil {
-			errorIf(err, fmt.Sprintf("Failed to delete lock info entry (param = %v; opsID = %s)", param, opsID))
-		}
+		n.deleteLockInfoEntryForOps(param, opsID)
+
 		if nsLk.ref == 0 {
 			// Remove from the map if there are no more references.
 			delete(n.lockMap, param)
 
 			// delete the lock state entry for given
 			// <volume, path> pair.
-			err := n.deleteLockInfoEntryForVolumePath(param)
-			if err != nil {
-				errorIf(err, fmt.Sprintf("Failed to delete lock info entry (param = %v)", param))
-			}
+			n.deleteLockInfoEntryForVolumePath(param)
 		}
 		return
 	}
@@ -215,9 +206,7 @@ func (n *nsLockMap) lock(volume, path string, lockSource, opsID string, readLock
 	// Changing the status of the operation from blocked to
 	// running.  change the state of the lock to be running (from
 	// blocked) for the given pair of <volume, path> and <OperationID>.
-	if err := n.statusBlockedToRunning(param, lockSource, opsID, readLock); err != nil {
-		errorIf(err, "Failed to set the lock state to running")
-	}
+	n.statusBlockedToRunning(param, lockSource, opsID, readLock)
 	return
 }
 
@@ -243,10 +232,7 @@ func (n *nsLockMap) unlock(volume, path, opsID string, readLock bool) {
 			nsLk.ref--
 
 			// delete the lock state entry for given operation ID.
-			err := n.deleteLockInfoEntryForOps(param, opsID)
-			if err != nil {
-				errorIf(err, "Failed to delete lock info entry")
-			}
+			n.deleteLockInfoEntryForOps(param, opsID)
 		}
 		if nsLk.ref == 0 {
 			// Remove from the map if there are no more references.
@@ -254,10 +240,7 @@ func (n *nsLockMap) unlock(volume, path, opsID string, readLock bool) {
 
 			// delete the lock state entry for given
 			// <volume, path> pair.
-			err := n.deleteLockInfoEntryForVolumePath(param)
-			if err != nil {
-				errorIf(err, "Failed to delete lock info entry")
-			}
+			n.deleteLockInfoEntryForVolumePath(param)
 		}
 	}
 }
