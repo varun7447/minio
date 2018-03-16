@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	mioutil "github.com/minio/minio/pkg/ioutil"
 
@@ -84,7 +85,8 @@ func (fs *FSObjects) backgroundAppend(bucket, object, uploadID string) {
 
 	entries, err := readDir(uploadIDDir)
 	if err != nil {
-		errorIf(err, "error reading directory %s", uploadIDDir)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("uploadIDDir", uploadIDDir))
+		logger.LogIf(ctx, err)
 		return
 	}
 	sort.Strings(entries)
@@ -95,7 +97,8 @@ func (fs *FSObjects) backgroundAppend(bucket, object, uploadID string) {
 		}
 		partNumber, etag, err := fs.decodePartFile(entry)
 		if err != nil {
-			errorIf(err, "unable to split the file name into partNumber and etag: %s", entry)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("entry", entry))
+			logger.LogIf(ctx, err)
 			return
 		}
 		if partNumber < nextPartNumber {
@@ -110,7 +113,8 @@ func (fs *FSObjects) backgroundAppend(bucket, object, uploadID string) {
 		partPath := pathJoin(uploadIDDir, entry)
 		err = mioutil.AppendFile(file.filePath, partPath)
 		if err != nil {
-			errorIf(err, "Unable to append %s to %s", partPath, file.filePath)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("partPath", partPath).AppendTags("filepath", file.filePath))
+			logger.LogIf(ctx, err)
 			return
 		}
 
@@ -250,14 +254,16 @@ func (fs *FSObjects) CopyObjectPart(ctx context.Context, srcBucket, srcObject, d
 	go func() {
 		if gerr := fs.GetObject(ctx, srcBucket, srcObject, startOffset, length, srcInfo.Writer, srcInfo.ETag); gerr != nil {
 			if gerr = srcInfo.Writer.Close(); gerr != nil {
-				errorIf(gerr, "Unable to read %s/%s.", srcBucket, srcObject)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+				logger.LogIf(ctx, gerr)
 				return
 			}
 			return
 		}
 		// Close writer explicitly signalling we wrote all data.
 		if gerr := srcInfo.Writer.Close(); gerr != nil {
-			errorIf(gerr, "Unable to read %s/%s.", srcBucket, srcObject)
+			ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+			logger.LogIf(ctx, gerr)
 			return
 		}
 	}()

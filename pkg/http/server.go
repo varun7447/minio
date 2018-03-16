@@ -17,6 +17,7 @@
 package http
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"net/http"
@@ -50,16 +51,16 @@ const (
 // Server - extended http.Server supports multiple addresses to serve and enhanced connection handling.
 type Server struct {
 	http.Server
-	Addrs                  []string                            // addresses on which the server listens for new connection.
-	ShutdownTimeout        time.Duration                       // timeout used for graceful server shutdown.
-	TCPKeepAliveTimeout    time.Duration                       // timeout used for underneath TCP connection.
-	UpdateBytesReadFunc    func(int)                           // function to be called to update bytes read in bufConn.
-	UpdateBytesWrittenFunc func(int)                           // function to be called to update bytes written in bufConn.
-	ErrorLogFunc           func(error, string, ...interface{}) // function to be called on errors.
-	listenerMutex          *sync.Mutex                         // to guard 'listener' field.
-	listener               *httpListener                       // HTTP listener for all 'Addrs' field.
-	inShutdown             uint32                              // indicates whether the server is in shutdown or not
-	requestCount           int32                               // counter holds no. of request in process.
+	Addrs                  []string                     // addresses on which the server listens for new connection.
+	ShutdownTimeout        time.Duration                // timeout used for graceful server shutdown.
+	TCPKeepAliveTimeout    time.Duration                // timeout used for underneath TCP connection.
+	UpdateBytesReadFunc    func(int)                    // function to be called to update bytes read in bufConn.
+	UpdateBytesWrittenFunc func(int)                    // function to be called to update bytes written in bufConn.
+	ErrorLogFunc           func(context.Context, error) // function to be called on errors.
+	listenerMutex          *sync.Mutex                  // to guard 'listener' field.
+	listener               *httpListener                // HTTP listener for all 'Addrs' field.
+	inShutdown             uint32                       // indicates whether the server is in shutdown or not
+	requestCount           int32                        // counter holds no. of request in process.
 }
 
 // Start - start HTTP server

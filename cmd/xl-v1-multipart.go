@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/minio/minio/pkg/mimedb"
@@ -269,13 +270,15 @@ func (xl xlObjects) CopyObjectPart(ctx context.Context, srcBucket, srcObject, ds
 	go func() {
 		if gerr := xl.getObject(srcBucket, srcObject, startOffset, length, srcInfo.Writer, srcInfo.ETag); gerr != nil {
 			if gerr = srcInfo.Writer.Close(); gerr != nil {
-				errorIf(gerr, "Unable to read %s of the object `%s/%s`.", srcBucket, srcObject)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+				logger.LogIf(ctx, gerr)
 			}
 			return
 		}
 		// Close writer explicitly signalling we wrote all data.
 		if gerr := srcInfo.Writer.Close(); gerr != nil {
-			errorIf(gerr, "Unable to read %s of the object `%s/%s`.", srcBucket, srcObject)
+			ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+			logger.LogIf(ctx, gerr)
 			return
 		}
 	}()

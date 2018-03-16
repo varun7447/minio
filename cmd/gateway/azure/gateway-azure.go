@@ -35,6 +35,7 @@ import (
 	humanize "github.com/dustin/go-humanize"
 	"github.com/minio/cli"
 	"github.com/minio/minio-go/pkg/policy"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
@@ -102,7 +103,7 @@ func azureGatewayMain(ctx *cli.Context) {
 	// Validate gateway arguments.
 	host := ctx.Args().First()
 	// Validate gateway arguments.
-	minio.FatalIf(minio.ValidateGatewayArguments(ctx.GlobalString("address"), host), "Invalid argument")
+	logger.FatalIf(minio.ValidateGatewayArguments(ctx.GlobalString("address"), host), "Invalid argument")
 
 	minio.StartGateway(ctx, &Azure{host})
 }
@@ -288,7 +289,7 @@ func azureToObjectError(err error, params ...string) error {
 	if !ok {
 		// Code should be fixed if this function is called without doing errors.Trace()
 		// Else handling different situations in this function makes this function complicated.
-		minio.ErrorIf(err, "Expected type *Error")
+		logger.LogIf(context.Background(), err)
 		return err
 	}
 
@@ -879,7 +880,8 @@ func (a *azureObjects) CompleteMultipartUpload(ctx context.Context, bucket, obje
 
 		blob := a.client.GetContainerReference(bucket).GetBlobReference(metadataObject)
 		derr := blob.Delete(nil)
-		minio.ErrorIf(derr, "unable to remove meta data object for upload ID %s", uploadID)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("uploadID", uploadID))
+		logger.LogIf(ctx, derr)
 	}()
 
 	objBlob := a.client.GetContainerReference(bucket).GetBlobReference(object)

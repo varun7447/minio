@@ -17,10 +17,12 @@
 package cmd
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/rpc"
 
+	"github.com/minio/minio/cmd/logger"
 	miniohttp "github.com/minio/minio/pkg/http"
 )
 
@@ -34,7 +36,8 @@ func (server *rpcServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	conn, _, err := w.(http.Hijacker).Hijack()
 	if err != nil {
-		errorIf(err, "rpc hijacking failed for: %s", req.RemoteAddr)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remoteaddr", req.RemoteAddr))
+		logger.LogIf(ctx, err)
 		return
 	}
 

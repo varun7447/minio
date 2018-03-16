@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"hash/crc32"
@@ -24,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/minio/minio/cmd/logger"
 	errors2 "github.com/minio/minio/pkg/errors"
 	"github.com/tidwall/gjson"
 )
@@ -384,7 +386,7 @@ func unshuffleIndex(n int, distribution []int) int {
 // the corresponding error in errs slice is not nil
 func evalDisks(disks []StorageAPI, errs []error) []StorageAPI {
 	if len(errs) != len(disks) {
-		errorIf(errors.New("unexpected disks/errors slice length"), "unable to evaluate internal disks")
+		logger.LogIf(context.Background(), errors.New("unexpected disks/errors slice length"))
 		return nil
 	}
 	newDisks := make([]StorageAPI, len(disks))

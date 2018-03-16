@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"io"
 	"mime/multipart"
 	"net"
@@ -24,6 +25,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	httptracer "github.com/minio/minio/pkg/handlers"
 )
@@ -36,7 +38,7 @@ func parseLocationConstraint(r *http.Request) (location string, s3Error APIError
 	locationConstraint := createBucketLocationConfiguration{}
 	err := xmlDecoder(r.Body, &locationConstraint, r.ContentLength)
 	if err != nil && err != io.EOF {
-		errorIf(err, "Unable to xml decode location constraint")
+		logger.LogIf(context.Background(), err)
 		// Treat all other failures as XML parsing errors.
 		return "", ErrMalformedXML
 	} // else for both err as nil or io.EOF
@@ -275,7 +277,8 @@ func getResource(path string, host string, domain string) (string, error) {
 		// In bucket.mydomain.com:9000, strip out :9000
 		var err error
 		if host, _, err = net.SplitHostPort(host); err != nil {
-			errorIf(err, "Unable to split %s", host)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("host", host))
+			logger.LogIf(ctx, err)
 			return "", err
 		}
 	}

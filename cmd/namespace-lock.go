@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	pathutil "path"
 	"runtime"
@@ -29,6 +30,7 @@ import (
 	"github.com/minio/dsync"
 	"github.com/minio/lsync"
 	"github.com/minio/minio-go/pkg/set"
+	"github.com/minio/minio/cmd/logger"
 )
 
 // Global name space lock.
@@ -225,8 +227,7 @@ func (n *nsLockMap) unlock(volume, path, opsID string, readLock bool) {
 			nsLk.Unlock()
 		}
 		if nsLk.ref == 0 {
-			errorIf(errors.New("Namespace reference count cannot be 0"),
-				"Invalid reference count detected")
+			logger.LogIf(context.Background(), errors.New("Namespace reference count cannot be 0"))
 		}
 		if nsLk.ref != 0 {
 			nsLk.ref--

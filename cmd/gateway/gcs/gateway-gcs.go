@@ -34,6 +34,7 @@ import (
 	humanize "github.com/dustin/go-humanize"
 	"github.com/minio/cli"
 	"github.com/minio/minio-go/pkg/policy"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
@@ -138,11 +139,12 @@ EXAMPLES:
 func gcsGatewayMain(ctx *cli.Context) {
 	projectID := ctx.Args().First()
 	if projectID == "" && os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
-		minio.ErrorIf(errGCSProjectIDNotFound, "project-id should be provided as argument or GOOGLE_APPLICATION_CREDENTIALS should be set with path to credentials.json")
+		logger.LogIf(context.Background(), errGCSProjectIDNotFound)
 		cli.ShowCommandHelpAndExit(ctx, "gcs", 1)
 	}
 	if projectID != "" && !isValidGCSProjectIDFormat(projectID) {
-		minio.ErrorIf(errGCSInvalidProjectID, "Unable to start GCS gateway with %s", ctx.Args().First())
+		contxt := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("projectID", ctx.Args().First()))
+		logger.LogIf(contxt, errGCSInvalidProjectID)
 		cli.ShowCommandHelpAndExit(ctx, "gcs", 1)
 	}
 
@@ -225,7 +227,7 @@ func gcsToObjectError(err error, params ...string) error {
 	if !ok {
 		// Code should be fixed if this function is called without doing errors.Trace()
 		// Else handling different situations in this function makes this function complicated.
-		minio.ErrorIf(err, "Expected type *Error")
+		logger.LogIf(context.Background(), err)
 		return err
 	}
 
@@ -365,7 +367,8 @@ func (l *gcsGateway) CleanupGCSMinioSysTmpBucket(bucket string) {
 		attrs, err := it.Next()
 		if err != nil {
 			if err != iterator.Done {
-				minio.ErrorIf(err, "Object listing error on bucket %s during purging of old files in minio.sys.tmp", bucket)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", bucket, "", nil})
+				logger.LogIf(ctx, err)
 			}
 			return
 		}
@@ -373,7 +376,8 @@ func (l *gcsGateway) CleanupGCSMinioSysTmpBucket(bucket string) {
 			// Delete files older than 2 weeks.
 			err := l.client.Bucket(bucket).Object(attrs.Name).Delete(l.ctx)
 			if err != nil {
-				minio.ErrorIf(err, "Unable to delete %s/%s during purging of old files in minio.sys.tmp", bucket, attrs.Name)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", bucket, attrs.Name, nil})
+				logger.LogIf(ctx, err)
 				return
 			}
 		}
@@ -388,7 +392,8 @@ func (l *gcsGateway) CleanupGCSMinioSysTmp() {
 			attrs, err := it.Next()
 			if err != nil {
 				if err != iterator.Done {
-					minio.ErrorIf(err, "Bucket listing error during purging of old files in minio.sys.tmp")
+					ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{})
+					logger.LogIf(ctx, err)
 				}
 				break
 			}

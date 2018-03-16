@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -28,6 +29,7 @@ import (
 	humanize "github.com/dustin/go-humanize"
 	mux "github.com/gorilla/mux"
 	"github.com/minio/minio-go/pkg/policy"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/wildcard"
 )
@@ -260,7 +262,7 @@ func (api objectAPIHandlers) PutBucketPolicyHandler(w http.ResponseWriter, r *ht
 	// bucket policies are limited to 20KB in size, using a limit reader.
 	policyBytes, err := ioutil.ReadAll(io.LimitReader(r.Body, maxAccessPolicySize))
 	if err != nil {
-		errorIf(err, "Unable to read from client.")
+		logger.LogIf(context.Background(), err)
 		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
 		return
 	}
@@ -288,7 +290,8 @@ func (api objectAPIHandlers) PutBucketPolicyHandler(w http.ResponseWriter, r *ht
 	}
 
 	for addr, err := range globalNotificationSys.UpdateBucketPolicy(bucket) {
-		errorIf(err, "unable to update policy change in remote peer %v", addr)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remotePeer", addr.Name))
+		logger.LogIf(ctx, err)
 	}
 
 	// Success.
@@ -331,7 +334,8 @@ func (api objectAPIHandlers) DeleteBucketPolicyHandler(w http.ResponseWriter, r 
 	}
 
 	for addr, err := range globalNotificationSys.UpdateBucketPolicy(bucket) {
-		errorIf(err, "unable to update policy change in remote peer %v", addr)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remotePeer", addr.Name))
+		logger.LogIf(ctx, err)
 	}
 
 	// Success.
@@ -375,7 +379,7 @@ func (api objectAPIHandlers) GetBucketPolicyHandler(w http.ResponseWriter, r *ht
 
 	policyBytes, err := json.Marshal(&policy)
 	if err != nil {
-		errorIf(err, "Unable to marshal bucket policy.")
+		logger.LogIf(context.Background(), err)
 		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
 		return
 	}

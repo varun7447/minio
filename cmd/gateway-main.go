@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/minio/cli"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	miniohttp "github.com/minio/minio/pkg/http"
 )
@@ -103,7 +105,7 @@ func ValidateGatewayArguments(serverAddr, endpointAddr string) error {
 // StartGateway - handler for 'minio gateway <name>'.
 func StartGateway(ctx *cli.Context, gw Gateway) {
 	if gw == nil {
-		fatalIf(errUnexpected, "Gateway implementation not initialized, exiting.")
+		logger.FatalIf(errUnexpected, "Gateway implementation not initialized, exiting.")
 	}
 
 	// Validate if we have access, secret set through environment.
@@ -116,13 +118,13 @@ func StartGateway(ctx *cli.Context, gw Gateway) {
 	// enable json and quite modes if jason flag is turned on.
 	jsonFlag := ctx.IsSet("json") || ctx.GlobalIsSet("json")
 	if jsonFlag {
-		log.EnableJSON()
+		logger.EnableJSON()
 	}
 
 	// Get quiet flag from command line argument.
 	quietFlag := ctx.IsSet("quiet") || ctx.GlobalIsSet("quiet")
 	if quietFlag {
-		log.EnableQuiet()
+		logger.EnableQuiet()
 	}
 
 	// Fetch address option
@@ -139,12 +141,13 @@ func StartGateway(ctx *cli.Context, gw Gateway) {
 
 	// Validate if we have access, secret set through environment.
 	if !globalIsEnvCreds {
-		errorIf(fmt.Errorf("Access and secret keys not set"), "Access and Secret keys should be set through ENVs for backend [%s]", gatewayName)
+		contxt := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("gatewayName", gatewayName))
+		logger.LogIf(contxt, fmt.Errorf("Access and Secret keys should be set through ENVs for backend"))
 		cli.ShowCommandHelpAndExit(ctx, gatewayName, 1)
 	}
 
 	// Create certs path.
-	fatalIf(createConfigDir(), "Unable to create configuration directories.")
+	logger.FatalIf(createConfigDir(), "Unable to create configuration directories.")
 
 	// Initialize gateway config.
 	initConfig()
@@ -155,25 +158,25 @@ func StartGateway(ctx *cli.Context, gw Gateway) {
 	// Check and load SSL certificates.
 	var err error
 	globalPublicCerts, globalRootCAs, globalTLSCertificate, globalIsSSL, err = getSSLConfig()
-	fatalIf(err, "Invalid SSL certificate file")
+	logger.FatalIf(err, "Invalid SSL certificate file")
 
 	// Set system resources to maximum.
-	errorIf(setMaxResources(), "Unable to change resource limit")
+	logger.LogIf(context.Background(), setMaxResources())
 
 	initNSLock(false) // Enable local namespace lock.
 
 	// Initialize notification system.
 	globalNotificationSys, err = NewNotificationSys(globalServerConfig, EndpointList{})
-	fatalIf(err, "Unable to initialize notification system.")
+	logger.FatalIf(err, "Unable to initialize notification system.")
 
 	newObject, err := gw.NewGatewayLayer(globalServerConfig.GetCredential())
-	fatalIf(err, "Unable to initialize gateway layer")
+	logger.FatalIf(err, "Unable to initialize gateway layer")
 
 	router := mux.NewRouter().SkipClean(true)
 
 	// Register web router when its enabled.
 	if globalIsBrowserEnabled {
-		fatalIf(registerWebRouter(router), "Unable to configure web browser")
+		logger.FatalIf(registerWebRouter(router), "Unable to configure web browser")
 	}
 	registerAPIRouter(router)
 
@@ -227,7 +230,7 @@ func StartGateway(ctx *cli.Context, gw Gateway) {
 
 		// Print a warning message if gateway is not ready for production before the startup banner.
 		if !gw.Production() {
-			log.Println(colorYellow("\n               *** Warning: Not Ready for Production ***"))
+			logger.Println(colorYellow("\n               *** Warning: Not Ready for Production ***"))
 		}
 
 		// Print gateway startup message.

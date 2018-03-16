@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"github.com/minio/minio-go/pkg/policy"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
 )
@@ -167,13 +168,15 @@ func removeBucketPolicy(bucket string, objAPI ObjectLayer) error {
 func writeBucketPolicy(bucket string, objAPI ObjectLayer, bpy policy.BucketAccessPolicy) error {
 	buf, err := json.Marshal(bpy)
 	if err != nil {
-		errorIf(err, "Unable to marshal bucket policy '%#v' to JSON", bpy)
+		ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", bucket, "", nil})
+		logger.LogIf(ctx, err)
 		return err
 	}
 	policyPath := pathJoin(bucketConfigPrefix, bucket, bucketPolicyConfig)
 	hashReader, err := hash.NewReader(bytes.NewReader(buf), int64(len(buf)), "", getSHA256Hash(buf))
 	if err != nil {
-		errorIf(err, "Unable to set policy for the bucket %s", bucket)
+		ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", bucket, "", nil})
+		logger.LogIf(ctx, err)
 		return errors.Cause(err)
 	}
 

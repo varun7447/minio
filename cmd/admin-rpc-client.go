@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/pkg/set"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 )
 
@@ -201,7 +202,7 @@ func (rc remoteAdminClient) WriteTmpConfig(tmpFileName string, configBytes []byt
 
 	err := rc.Call(writeTmpConfigRPC, &wArgs, &WriteConfigReply{})
 	if err != nil {
-		errorIf(err, "Failed to write temporary config file.")
+		logger.LogIf(context.Background(), err)
 		return err
 	}
 
@@ -215,7 +216,8 @@ func (lc localAdminClient) CommitConfig(tmpFileName string) error {
 	tmpConfigFile := filepath.Join(getConfigDir(), tmpFileName)
 
 	err := os.Rename(tmpConfigFile, configFile)
-	errorIf(err, fmt.Sprintf("Failed to rename %s to %s", tmpConfigFile, configFile))
+	ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("tmpConfigFile", tmpConfigFile).AppendTags("configFile", configFile))
+	logger.LogIf(ctx, err)
 	return err
 }
 
@@ -228,7 +230,7 @@ func (rc remoteAdminClient) CommitConfig(tmpFileName string) error {
 	cReply := CommitConfigReply{}
 	err := rc.Call(commitConfigRPC, &cArgs, &cReply)
 	if err != nil {
-		errorIf(err, "Failed to rename config file.")
+		logger.LogIf(context.Background(), err)
 		return err
 	}
 
@@ -436,7 +438,7 @@ func getPeerUptimes(peers adminPeers) (time.Duration, error) {
 	latestUptime := time.Duration(0)
 	for _, uptime := range uptimes {
 		if uptime.err != nil {
-			errorIf(uptime.err, "Unable to fetch uptime")
+			logger.LogIf(context.Background(), uptime.err)
 			continue
 		}
 
@@ -489,14 +491,15 @@ func getPeerConfig(peers adminPeers) ([]byte, error) {
 		// Unmarshal the received config files.
 		err := json.Unmarshal(configBytes, &serverConfigs[i])
 		if err != nil {
-			errorIf(err, "Failed to unmarshal serverConfig from ", peers[i].addr)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("peerAddress", peers[i].addr))
+			logger.LogIf(ctx, err)
 			return nil, err
 		}
 	}
 
 	configJSON, err := getValidServerConfig(serverConfigs, errs)
 	if err != nil {
-		errorIf(err, "Unable to find a valid server config")
+		logger.LogIf(context.Background(), err)
 		return nil, errors.Trace(err)
 	}
 

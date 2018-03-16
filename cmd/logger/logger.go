@@ -14,22 +14,30 @@
  * limitations under the License.
  */
 
-package cmd
+package logger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"go/build"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/minio/mc/pkg/console"
-	"github.com/minio/minio/pkg/errors"
 )
 
-var log = NewLogger()
+// global colors.
+var (
+	colorBold   = color.New(color.Bold).SprintFunc()
+	colorYellow = color.New(color.FgYellow).SprintfFunc()
+	colorRed    = color.New(color.FgRed).SprintfFunc()
+)
+
 var trimStrings []string
 
 // Level type
@@ -55,43 +63,36 @@ func (level Level) String() string {
 type logEntry struct {
 	Level   string   `json:"level"`
 	Message string   `json:"message"`
-	Time    string   `json:"time"`
 	Cause   string   `json:"cause"`
+	Time    string   `json:"time"`
 	Trace   []string `json:"trace"`
 }
 
-// Logger - for console messages
-type Logger struct {
-	quiet bool
-	json  bool
-}
-
-// NewLogger - to create a new Logger object
-func NewLogger() *Logger {
-	return &Logger{}
-}
+var (
+	quiet, jsonFlag bool
+)
 
 // EnableQuiet - turns quiet option on.
-func (log *Logger) EnableQuiet() {
-	log.quiet = true
+func EnableQuiet() {
+	quiet = true
 }
 
 // EnableJSON - outputs logs in json format.
-func (log *Logger) EnableJSON() {
-	log.json = true
-	log.quiet = true
+func EnableJSON() {
+	jsonFlag = true
+	quiet = true
 }
 
 // Println - wrapper to console.Println() with quiet flag.
-func (log *Logger) Println(args ...interface{}) {
-	if !log.quiet {
+func Println(args ...interface{}) {
+	if !quiet {
 		console.Println(args...)
 	}
 }
 
 // Printf - wrapper to console.Printf() with quiet flag.
-func (log *Logger) Printf(format string, args ...interface{}) {
-	if !log.quiet {
+func Printf(format string, args ...interface{}) {
+	if !quiet {
 		console.Printf(format, args...)
 	}
 }
@@ -101,10 +102,10 @@ func init() {
 	// Add all possible GOPATH paths into trimStrings
 	// Split GOPATH depending on the OS type
 	if runtime.GOOS == "windows" {
-		goPathList = strings.Split(GOPATH, ";")
+		goPathList = strings.Split(build.Default.GOPATH, ";")
 	} else {
 		// All other types of OSs
-		goPathList = strings.Split(GOPATH, ":")
+		goPathList = strings.Split(build.Default.GOPATH, ":")
 	}
 
 	// Add trim string "{GOROOT}/src/" into trimStrings
@@ -155,21 +156,7 @@ func getTrace(traceLevel int) []string {
 
 func logIf(level Level, err error, msg string,
 	data ...interface{}) {
-
-	isErrIgnored := func(err error) (ok bool) {
-		err = errors.Cause(err)
-		switch err.(type) {
-		case BucketNotFound, BucketNotEmpty, BucketExists:
-			ok = true
-		case ObjectNotFound, ObjectExistsAsDirectory:
-			ok = true
-		case BucketPolicyNotFound, InvalidUploadID:
-			ok = true
-		}
-		return ok
-	}
-
-	if err == nil || isErrIgnored(err) {
+	if err == nil {
 		return
 	}
 	// Get the cause for the Error
@@ -177,11 +164,11 @@ func logIf(level Level, err error, msg string,
 	// Get full stack trace
 	trace := getTrace(3)
 	// Get time
-	timeOfError := UTCNow().Format(time.RFC3339Nano)
+	timeOfError := time.Now().UTC().Format(time.RFC3339Nano)
 	// Output the formatted log message at console
 	var output string
 	message := fmt.Sprintf(msg, data...)
-	if log.json {
+	if jsonFlag {
 		logJSON, err := json.Marshal(&logEntry{
 			Level:   level.String(),
 			Message: message,
@@ -214,10 +201,55 @@ func logIf(level Level, err error, msg string,
 	}
 }
 
-func errorIf(err error, msg string, data ...interface{}) {
-	logIf(Error, err, msg, data...)
+// FatalIf :
+func FatalIf(err error, msg string, data ...interface{}) {
+	logIf(Fatal, err, msg, data...)
 }
 
-func fatalIf(err error, msg string, data ...interface{}) {
-	logIf(Fatal, err, msg, data...)
+// LogIf :
+func LogIf(ctx context.Context, err error) {
+	if err == nil {
+		return
+	}
+
+	req := ContextGet(ctx)
+
+	if req != nil {
+		fmt.Println("Found")
+	}
+
+	// Get the cause for the Error
+	message := err.Error()
+	// Get full stack trace
+	trace := getTrace(2)
+	// Get time
+	timeOfError := time.Now().UTC().Format(time.RFC3339Nano)
+	// Output the formatted log message at console
+	var output string
+	if jsonFlag {
+		logJSON, err := json.Marshal(&logEntry{
+			Level:   Error.String(),
+			Message: message,
+			Time:    timeOfError,
+			Trace:   trace,
+		})
+		if err != nil {
+			panic("json marshal of logEntry failed: " + err.Error())
+		}
+		output = string(logJSON)
+	} else {
+		// Add a sequence number and formatting for each stack trace
+		// No formatting is required for the first entry
+		trace[0] = "1: " + trace[0]
+		for i, element := range trace[1:] {
+			trace[i+1] = fmt.Sprintf("%8v: %s", i+2, element)
+		}
+		errMsg := fmt.Sprintf("[%s] [%s] %s",
+			timeOfError, Error.String(), message)
+
+		output = fmt.Sprintf("\nTrace: %s\n%s",
+			strings.Join(trace, "\n"),
+			colorRed(colorBold(errMsg)))
+	}
+	fmt.Println(output)
 }

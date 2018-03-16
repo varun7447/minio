@@ -41,11 +41,12 @@ type ReqInfo struct {
 }
 
 // AppendTags - appends key/val to ReqInfo.Tags
-func (r *ReqInfo) AppendTags(key string, val string) {
+func (r *ReqInfo) AppendTags(key string, val string) *ReqInfo {
 	if r == nil {
-		return
+		return nil
 	}
 	r.Tags = append(r.Tags, KeyVal{key, val})
+	return r
 }
 
 // ContextSet sets ReqInfo in the context.

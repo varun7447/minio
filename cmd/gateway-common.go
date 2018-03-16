@@ -17,8 +17,10 @@
 package cmd
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
 
@@ -31,12 +33,6 @@ var (
 
 	// MustGetUUID function alias.
 	MustGetUUID = mustGetUUID
-
-	// ErrorIf provides errorIf function alias.
-	ErrorIf = errorIf
-
-	// FatalIf provides fatalIf function alias.
-	FatalIf = fatalIf
 )
 
 // AnonErrToObjectErr - converts standard http codes into meaningful object layer errors.
@@ -266,7 +262,7 @@ func ErrorRespToObjectError(err error, params ...string) error {
 	if !ok {
 		// Code should be fixed if this function is called without doing traceError()
 		// Else handling different situations in this function makes this function complicated.
-		errorIf(err, "Expected type *Error")
+		logger.LogIf(context.Background(), err)
 		return err
 	}
 

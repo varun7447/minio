@@ -26,6 +26,7 @@ import (
 	"time"
 
 	router "github.com/gorilla/mux"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 )
 
@@ -172,7 +173,8 @@ type WriteConfigReply struct {
 func writeTmpConfigCommon(tmpFileName string, configBytes []byte) error {
 	tmpConfigFile := filepath.Join(getConfigDir(), tmpFileName)
 	err := ioutil.WriteFile(tmpConfigFile, configBytes, 0666)
-	errorIf(err, fmt.Sprintf("Failed to write to temporary config file %s", tmpConfigFile))
+	ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("tmpConfigFile", tmpConfigFile))
+	logger.LogIf(ctx, err)
 	return err
 }
 
@@ -205,7 +207,8 @@ func (s *adminCmd) CommitConfig(cArgs *CommitConfigArgs, cReply *CommitConfigRep
 	tmpConfigFile := filepath.Join(getConfigDir(), cArgs.FileName)
 
 	err := os.Rename(tmpConfigFile, configFile)
-	errorIf(err, fmt.Sprintf("Failed to rename %s to %s", tmpConfigFile, configFile))
+	ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("tmpConfigFile", tmpConfigFile).AppendTags("configFile", configFile))
+	logger.LogIf(ctx, err)
 	return err
 }
 

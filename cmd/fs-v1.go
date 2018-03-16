@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/pkg/policy"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/minio/minio/pkg/lock"
@@ -192,7 +193,8 @@ func (fs *FSObjects) Shutdown(ctx context.Context) error {
 // StorageInfo - returns underlying storage statistics.
 func (fs *FSObjects) StorageInfo(ctx context.Context) StorageInfo {
 	info, err := getDiskInfo((fs.fsPath))
-	errorIf(err, "Unable to get disk info %#v", fs.fsPath)
+	logger.ContextGet(ctx).AppendTags("path", fs.fsPath)
+	logger.LogIf(ctx, err)
 	storageInfo := StorageInfo{
 		Total: info.Total,
 		Free:  info.Free,
@@ -425,13 +427,15 @@ func (fs *FSObjects) CopyObject(ctx context.Context, srcBucket, srcObject, dstBu
 	go func() {
 		if gerr := fs.getObject(srcBucket, srcObject, 0, srcInfo.Size, srcInfo.Writer, srcInfo.ETag, !cpSrcDstSame); gerr != nil {
 			if gerr = srcInfo.Writer.Close(); gerr != nil {
-				errorIf(gerr, "Unable to read the object %s/%s.", srcBucket, srcObject)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+				logger.LogIf(ctx, gerr)
 			}
 			return
 		}
 		// Close writer explicitly signalling we wrote all data.
 		if gerr := srcInfo.Writer.Close(); gerr != nil {
-			errorIf(gerr, "Unable to read the object %s/%s.", srcBucket, srcObject)
+			ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+			logger.LogIf(ctx, gerr)
 			return
 		}
 	}()

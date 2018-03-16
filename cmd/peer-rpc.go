@@ -22,6 +22,7 @@ import (
 	"path"
 
 	"github.com/gorilla/mux"
+	"github.com/minio/minio/cmd/logger"
 	xerrors "github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/event"
 	xnet "github.com/minio/minio/pkg/net"
@@ -103,7 +104,8 @@ func (receiver *PeerRPCReceiver) ListenBucketNotification(args *ListenBucketNoti
 	target := NewPeerRPCClientTarget(args.BucketName, args.TargetID, rpcClient)
 	rulesMap := event.NewRulesMap(args.EventNames, args.Pattern, target.ID())
 	if err := globalNotificationSys.AddRemoteTarget(args.BucketName, target, rulesMap); err != nil {
-		errorIf(err, "Unable to add PeerRPCClientTarget %v to globalNotificationSys.targetList.", target)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{"", "", "", "", target.bucketName, "", nil}).AppendTags("target", target.id.Name))
+		logger.LogIf(ctx, err)
 		return err
 	}
 	return nil
@@ -158,7 +160,8 @@ func (receiver *PeerRPCReceiver) SendEvent(args *SendEventArgs, reply *SendEvent
 	}
 
 	if err != nil {
-		errorIf(err, "unable to send event %v to target %v", args.Event, args.TargetID)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("Event", args.Event.EventName.String()).AppendTags("target", args.TargetID.Name))
+		logger.LogIf(ctx, err)
 	}
 
 	reply.Error = err
@@ -250,7 +253,8 @@ func (rpcClient *PeerRPCClient) SendEvent(bucketName string, targetID, remoteTar
 	}
 
 	if reply.Error != nil {
-		errorIf(reply.Error, "unable to send event %v to rpc target %v of bucket %v", args, targetID, bucketName)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{"", "", "", "", bucketName, "", nil}).AppendTags("targetID", targetID.Name).AppendTags("event", eventData.EventName.String()))
+		logger.LogIf(ctx, reply.Error)
 		globalNotificationSys.RemoveRemoteTarget(bucketName, targetID)
 	}
 

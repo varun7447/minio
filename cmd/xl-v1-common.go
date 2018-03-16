@@ -17,8 +17,10 @@
 package cmd
 
 import (
+	"context"
 	"path"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 )
 
@@ -66,7 +68,8 @@ func (xl xlObjects) isObject(bucket, prefix string) (ok bool) {
 		if errors.IsErrIgnored(err, xlTreeWalkIgnoredErrs...) {
 			continue
 		}
-		errorIf(err, "Unable to stat a file %s/%s/%s", bucket, prefix, xlMetaJSONFile)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{"", "", "", "", bucket, "", nil}).AppendTags("prefix", prefix).AppendTags("xlMetaJSONFile", xlMetaJSONFile))
+		logger.LogIf(ctx, err)
 	} // Exhausted all disks - return false.
 	return false
 }

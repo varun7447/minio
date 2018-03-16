@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -38,6 +37,7 @@ import (
 	"github.com/minio/cli"
 	"github.com/minio/minio-go/pkg/set"
 	minio "github.com/minio/minio/cmd"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
@@ -99,7 +99,7 @@ func siaGatewayMain(ctx *cli.Context) {
 	// Validate gateway arguments.
 	host := ctx.Args().First()
 	// Validate gateway arguments.
-	minio.FatalIf(minio.ValidateGatewayArguments(ctx.GlobalString("address"), host), "Invalid argument")
+	logger.FatalIf(minio.ValidateGatewayArguments(ctx.GlobalString("address"), host), "Invalid argument")
 
 	minio.StartGateway(ctx, &Sia{host})
 }
@@ -151,9 +151,9 @@ func (g *Sia) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error)
 	colorBlue := color.New(color.FgBlue).SprintfFunc()
 	colorBold := color.New(color.Bold).SprintFunc()
 
-	log.Println(colorBlue("\nSia Gateway Configuration:"))
-	log.Println(colorBlue("  Sia Daemon API Address:") + colorBold(fmt.Sprintf(" %s\n", sia.Address)))
-	log.Println(colorBlue("  Sia Temp Directory:") + colorBold(fmt.Sprintf(" %s\n", sia.TempDir)))
+	logger.Println(colorBlue("\nSia Gateway Configuration:"))
+	logger.Println(colorBlue("  Sia Daemon API Address:") + colorBold(fmt.Sprintf(" %s\n", sia.Address)))
+	logger.Println(colorBlue("  Sia Temp Directory:") + colorBold(fmt.Sprintf(" %s\n", sia.TempDir)))
 	return sia, nil
 }
 

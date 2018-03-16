@@ -19,6 +19,7 @@ package http
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -205,7 +206,7 @@ func TestNewHTTPListener(t *testing.T) {
 		writeTimeout           time.Duration
 		updateBytesReadFunc    func(int)
 		updateBytesWrittenFunc func(int)
-		errorLogFunc           func(error, string, ...interface{})
+		errorLogFunc           func(context.Context, error)
 		expectedErr            error
 	}{
 		{[]string{"93.184.216.34:65432"}, nil, time.Duration(0), time.Duration(0), time.Duration(0), nil, nil, nil, errors.New(remoteAddrErrMsg)},

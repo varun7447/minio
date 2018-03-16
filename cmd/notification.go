@@ -26,6 +26,7 @@ import (
 	"path"
 	"sync"
 
+	"github.com/minio/minio/cmd/logger"
 	xerrors "github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/event"
 	"github.com/minio/minio/pkg/hash"
@@ -189,7 +190,7 @@ func (sys *NotificationSys) initListeners(objAPI ObjectLayer, bucketName string)
 	listenerList := []ListenBucketNotificationArgs{}
 	if reader != nil {
 		if err = json.NewDecoder(reader).Decode(&listenerList); err != nil {
-			errorIf(err, "Unable to parse listener.json.")
+			logger.LogIf(context.Background(), err)
 			return xerrors.Trace(err)
 		}
 	}
@@ -203,7 +204,8 @@ func (sys *NotificationSys) initListeners(objAPI ObjectLayer, bucketName string)
 	for _, args := range listenerList {
 		var found bool
 		if found, err = isLocalHost(args.Addr.Name); err != nil {
-			errorIf(err, "unable to check address %v is local host", args.Addr)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("host", args.Addr.Name))
+			logger.LogIf(ctx, err)
 			return err
 		}
 		if found {
@@ -256,7 +258,8 @@ func (sys *NotificationSys) Init(objAPI ObjectLayer) error {
 		config, err := readNotificationConfig(objAPI, bucket.Name)
 		if err != nil {
 			if !xerrors.IsErrIgnored(err, errDiskNotFound, errNoSuchNotifications) {
-				errorIf(err, "Unable to load notification configuration of bucket %v", bucket.Name)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", bucket.Name, "", nil})
+				logger.LogIf(ctx, err)
 				return err
 			}
 		} else {
@@ -264,7 +267,8 @@ func (sys *NotificationSys) Init(objAPI ObjectLayer) error {
 		}
 
 		if err = sys.initListeners(objAPI, bucket.Name); err != nil {
-			errorIf(err, "Unable to initialize HTTP listener for bucket %v", bucket.Name)
+			ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", bucket.Name, "", nil})
+			logger.LogIf(ctx, err)
 			return err
 		}
 	}
@@ -325,7 +329,8 @@ func (sys *NotificationSys) RemoveAllRemoteTargets() {
 // RemoveRemoteTarget - closes and removes target by target ID.
 func (sys *NotificationSys) RemoveRemoteTarget(bucketName string, targetID event.TargetID) {
 	for id, err := range sys.targetList.Remove(targetID) {
-		errorIf(err, "unable to close target ID %v", id)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("targetID", id.Name))
+		logger.LogIf(ctx, err)
 	}
 
 	sys.Lock()
@@ -457,8 +462,8 @@ func sendEvent(args eventArgs) {
 	}
 
 	for targetID, err := range globalNotificationSys.Send(args) {
-		errorIf(err, "unable to send event %v of bucket: %v, object: %v to target %v",
-			args.EventName, args.BucketName, args.Object.Name, targetID)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{"", "", "", "", args.BucketName, args.Object.Name, nil}).AppendTags("EventName", args.EventName.String()).AppendTags("targetID", targetID.Name))
+		logger.LogIf(ctx, err)
 	}
 }
 
@@ -481,7 +486,8 @@ func readConfig(objAPI ObjectLayer, configFile string) (*bytes.Buffer, error) {
 		if isErrObjectNotFound(err) || isErrIncompleteBody(err) {
 			return nil, xerrors.Trace(errNoSuchNotifications)
 		}
-		errorIf(err, "Unable to read file %v", configFile)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("configFile", configFile))
+		logger.LogIf(ctx, err)
 		return nil, err
 	}
 
@@ -559,7 +565,7 @@ func SaveListener(objAPI ObjectLayer, bucketName string, eventNames []event.Name
 	listenerList := []ListenBucketNotificationArgs{}
 	if reader != nil {
 		if err = json.NewDecoder(reader).Decode(&listenerList); err != nil {
-			errorIf(err, "Unable to parse listener.json.")
+			logger.LogIf(context.Background(), err)
 			return xerrors.Trace(err)
 		}
 	}
@@ -607,7 +613,7 @@ func RemoveListener(objAPI ObjectLayer, bucketName string, targetID event.Target
 	listenerList := []ListenBucketNotificationArgs{}
 	if reader != nil {
 		if err = json.NewDecoder(reader).Decode(&listenerList); err != nil {
-			errorIf(err, "Unable to parse listener.json.")
+			logger.LogIf(context.Background(), err)
 			return xerrors.Trace(err)
 		}
 	}

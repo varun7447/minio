@@ -17,8 +17,8 @@
 package http
 
 import (
+	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -28,6 +28,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/minio/minio/cmd/logger"
 )
 
 var sslRequiredErrMsg = []byte("HTTP/1.0 403 Forbidden\r\n\r\nSSL required")
@@ -85,9 +87,9 @@ type httpListener struct {
 	tcpKeepAliveTimeout    time.Duration
 	readTimeout            time.Duration
 	writeTimeout           time.Duration
-	updateBytesReadFunc    func(int)                           // function to be called to update bytes read in BufConn.
-	updateBytesWrittenFunc func(int)                           // function to be called to update bytes written in BufConn.
-	errorLogFunc           func(error, string, ...interface{}) // function to be called on errors.
+	updateBytesReadFunc    func(int)                    // function to be called to update bytes read in BufConn.
+	updateBytesWrittenFunc func(int)                    // function to be called to update bytes written in BufConn.
+	errorLogFunc           func(context.Context, error) // function to be called on errors.
 }
 
 // isRoutineNetErr returns true if error is due to a network timeout,
@@ -146,9 +148,8 @@ func (listener *httpListener) start() {
 				// saturation on a transport with read timeout set. All other kind of
 				// errors should be logged for further investigation. Thanks @brendanashworth.
 				if !isRoutineNetErr(err) {
-					listener.errorLogFunc(err,
-						"Error in reading from new connection %s at server %s",
-						bufconn.RemoteAddr(), bufconn.LocalAddr())
+					ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remoteAddr", bufconn.RemoteAddr().String()).AppendTags("localAddr", bufconn.LocalAddr().String()))
+					listener.errorLogFunc(ctx, err)
 				}
 			}
 			bufconn.Close()
@@ -174,9 +175,8 @@ func (listener *httpListener) start() {
 			tlsConn := tls.Server(bufconn, listener.tlsConfig)
 			if err := tlsConn.Handshake(); err != nil {
 				if listener.errorLogFunc != nil {
-					listener.errorLogFunc(err,
-						"TLS handshake failed with new connection %s at server %s",
-						bufconn.RemoteAddr(), bufconn.LocalAddr())
+					ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remoteAddr", bufconn.RemoteAddr().String()).AppendTags("localAddr", bufconn.LocalAddr().String()))
+					listener.errorLogFunc(ctx, err)
 				}
 				bufconn.Close()
 				return
@@ -190,9 +190,8 @@ func (listener *httpListener) start() {
 			data, err := bufconn.Peek(methodMaxLen)
 			if err != nil {
 				if !isRoutineNetErr(err) && listener.errorLogFunc != nil {
-					listener.errorLogFunc(err,
-						"Error in reading from new TLS connection %s at server %s",
-						bufconn.RemoteAddr(), bufconn.LocalAddr())
+					ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remoteAddr", bufconn.RemoteAddr().String()).AppendTags("localAddr", bufconn.LocalAddr().String()))
+					listener.errorLogFunc(ctx, err)
 				}
 				bufconn.Close()
 				return
@@ -207,9 +206,8 @@ func (listener *httpListener) start() {
 		}
 
 		if listener.errorLogFunc != nil {
-			listener.errorLogFunc(errors.New("junk message"),
-				"Received non-HTTP message from new connection %s at server %s",
-				bufconn.RemoteAddr(), bufconn.LocalAddr())
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remoteAddr", bufconn.RemoteAddr().String()).AppendTags("localAddr", bufconn.LocalAddr().String()))
+			listener.errorLogFunc(ctx, err)
 		}
 
 		bufconn.Close()
@@ -300,7 +298,7 @@ func newHTTPListener(serverAddrs []string,
 	writeTimeout time.Duration,
 	updateBytesReadFunc func(int),
 	updateBytesWrittenFunc func(int),
-	errorLogFunc func(error, string, ...interface{})) (listener *httpListener, err error) {
+	errorLogFunc func(context.Context, error)) (listener *httpListener, err error) {
 
 	var tcpListeners []*net.TCPListener
 	// Close all opened listeners on error

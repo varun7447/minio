@@ -222,7 +222,7 @@ func (ahs *allHealState) LaunchNewHealSequence(h *healSequence) (
 		h.startTime,
 	})
 	if err != nil {
-		errorIf(err, "Failed to marshal heal result into json.")
+		logger.LogIf(context.Background(), err)
 		return nil, ErrInternalError, ""
 	}
 	return b, ErrNone, ""
@@ -270,7 +270,7 @@ func (ahs *allHealState) PopHealStatusJSON(path string,
 
 	jbytes, err := json.Marshal(h.currentStatus)
 	if err != nil {
-		errorIf(err, "Failed to marshal heal result into json.")
+		logger.LogIf(context.Background(), err)
 		return nil, ErrInternalError
 	}
 

@@ -18,11 +18,13 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io/ioutil"
 	"net/http"
 	"strings"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/handlers"
 )
 
@@ -112,7 +114,7 @@ func checkAdminRequestAuthType(r *http.Request, region string) APIErrorCode {
 		s3Err = isReqAuthenticated(r, region)
 	}
 	if s3Err != ErrNone {
-		errorIf(errors.New(getAPIError(s3Err).Description), "%s", dumpRequest(r))
+		logger.LogIf(context.Background(), errors.New(getAPIError(s3Err).Description))
 	}
 	return s3Err
 }
@@ -172,7 +174,7 @@ func isReqAuthenticated(r *http.Request, region string) (s3Error APIErrorCode) {
 	}
 	payload, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		errorIf(err, "Unable to read request body for signature verification")
+		logger.LogIf(context.Background(), err)
 		return ErrInternalError
 	}
 

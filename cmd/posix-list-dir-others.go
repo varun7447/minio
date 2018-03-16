@@ -19,10 +19,13 @@
 package cmd
 
 import (
+	"context"
 	"io"
 	"os"
 	"path"
 	"strings"
+
+	"github.com/minio/minio/cmd/logger"
 )
 
 // Return all the entries at the directory dirPath.
@@ -57,7 +60,8 @@ func readDir(dirPath string) (entries []string, err error) {
 				var st os.FileInfo
 				st, err = os.Stat((path.Join(dirPath, fi.Name())))
 				if err != nil {
-					errorIf(err, "Unable to stat path %s", path.Join(dirPath, fi.Name()))
+					ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("path", path.Join(dirPath, fi.Name())))
+					logger.LogIf(ctx, err)
 					continue
 				}
 				// Append to entries if symbolic link exists and is valid.

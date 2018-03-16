@@ -17,11 +17,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/minio/mc/pkg/console"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 )
 
@@ -34,14 +36,16 @@ var printEndpointError = func() func(Endpoint, error) {
 			m = make(map[string]bool)
 			m[err.Error()] = true
 			printOnce[endpoint] = m
-			errorIf(err, "%s: %s", endpoint, err)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("endpoint", endpoint.Host))
+			logger.LogIf(ctx, err)
 			return
 		}
 		if m[err.Error()] {
 			return
 		}
 		m[err.Error()] = true
-		errorIf(err, "%s: %s", endpoint, err)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("endpoint", endpoint.Host))
+		logger.LogIf(ctx, err)
 	}
 }()
 

@@ -32,6 +32,7 @@ import (
 	"github.com/minio/cli"
 	"github.com/minio/minio-go/pkg/policy"
 	minio "github.com/minio/minio/cmd"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
@@ -95,7 +96,7 @@ func ossGatewayMain(ctx *cli.Context) {
 
 	// Validate gateway arguments.
 	host := ctx.Args().First()
-	minio.FatalIf(minio.ValidateGatewayArguments(ctx.GlobalString("address"), host), "Invalid argument")
+	logger.FatalIf(minio.ValidateGatewayArguments(ctx.GlobalString("address"), host), "Invalid argument")
 
 	minio.StartGateway(ctx, &OSS{host})
 }
@@ -257,7 +258,7 @@ func ossToObjectError(err error, params ...string) error {
 	if !ok {
 		// Code should be fixed if this function is called without doing errors.Trace()
 		// Else handling different situations in this function makes this function complicated.
-		minio.ErrorIf(err, "Expected type *Error")
+		logger.LogIf(context.Background(), err)
 		return err
 	}
 

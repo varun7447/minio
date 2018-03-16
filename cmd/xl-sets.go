@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/pkg/policy"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/bpool"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
@@ -212,12 +213,14 @@ func newXLSets(endpoints EndpointList, format *formatXLV3, setCount int, drivesP
 	for _, endpoint := range endpoints {
 		disk, nformat, err := connectEndpoint(endpoint)
 		if err != nil {
-			errorIf(err, "Unable to connect to endpoint %s", endpoint)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("endpoint", endpoint.Host))
+			logger.LogIf(ctx, err)
 			continue
 		}
 		i, j, err := findDiskIndex(format, nformat)
 		if err != nil {
-			errorIf(err, "Unable to find the endpoint %s in reference format", endpoint)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("endpoint", endpoint.Host))
+			logger.LogIf(ctx, err)
 			continue
 		}
 		s.xlDisks[i][j] = disk
@@ -583,13 +586,15 @@ func (s *xlSets) CopyObject(ctx context.Context, srcBucket, srcObject, destBucke
 	go func() {
 		if gerr := srcSet.getObject(srcBucket, srcObject, 0, srcInfo.Size, srcInfo.Writer, srcInfo.ETag); gerr != nil {
 			if gerr = srcInfo.Writer.Close(); gerr != nil {
-				errorIf(gerr, "Unable to read the object %s/%s.", srcBucket, srcObject)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+				logger.LogIf(ctx, gerr)
 			}
 			return
 		}
 		// Close writer explicitly signalling we wrote all data.
 		if gerr := srcInfo.Writer.Close(); gerr != nil {
-			errorIf(gerr, "Unable to read the object %s/%s.", srcBucket, srcObject)
+			ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+			logger.LogIf(ctx, gerr)
 			return
 		}
 	}()
@@ -788,12 +793,14 @@ func (s *xlSets) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destB
 	go func() {
 		if gerr := srcSet.GetObject(ctx, srcBucket, srcObject, startOffset, length, srcInfo.Writer, srcInfo.ETag); gerr != nil {
 			if gerr = srcInfo.Writer.Close(); gerr != nil {
-				errorIf(gerr, "Unable to read %s of the object `%s/%s`.", srcBucket, srcObject)
+				ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+				logger.LogIf(ctx, gerr)
 				return
 			}
 		}
 		if gerr := srcInfo.Writer.Close(); gerr != nil {
-			errorIf(gerr, "Unable to read %s of the object `%s/%s`.", srcBucket, srcObject)
+			ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+			logger.LogIf(ctx, gerr)
 			return
 		}
 	}()

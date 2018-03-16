@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/minio/cli"
 	"github.com/minio/dsync"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	miniohttp "github.com/minio/minio/pkg/http"
 )
@@ -108,17 +110,17 @@ func serverHandleCmdArgs(ctx *cli.Context) {
 
 	// Server address.
 	serverAddr := ctx.String("address")
-	fatalIf(CheckLocalServerAddr(serverAddr), "Invalid address ‘%s’ in command line argument.", serverAddr)
+	logger.FatalIf(CheckLocalServerAddr(serverAddr), "Invalid address ‘%s’ in command line argument.", serverAddr)
 
 	var setupType SetupType
 	var err error
 
 	if len(ctx.Args()) > serverCommandLineArgsMax {
-		fatalIf(errInvalidArgument, "Invalid total number of arguments (%d) passed, supported upto 32 unique arguments", len(ctx.Args()))
+		logger.FatalIf(errInvalidArgument, "Invalid total number of arguments (%d) passed, supported upto 32 unique arguments", len(ctx.Args()))
 	}
 
 	globalMinioAddr, globalEndpoints, setupType, globalXLSetCount, globalXLSetDriveCount, err = createServerEndpoints(serverAddr, ctx.Args()...)
-	fatalIf(err, "Invalid command line arguments server=‘%s’, args=%s", serverAddr, ctx.Args())
+	logger.FatalIf(err, "Invalid command line arguments server=‘%s’, args=%s", serverAddr, ctx.Args())
 
 	globalMinioHost, globalMinioPort = mustSplitHostPort(globalMinioAddr)
 	if runtime.GOOS == "darwin" {
@@ -126,7 +128,7 @@ func serverHandleCmdArgs(ctx *cli.Context) {
 		// to IPv6 address ie minio will start listening on IPv6 address whereas another
 		// (non-)minio process is listening on IPv4 of given port.
 		// To avoid this error sutiation we check for port availability only for macOS.
-		fatalIf(checkPortAvailability(globalMinioPort), "Port %d already in use", globalMinioPort)
+		logger.FatalIf(checkPortAvailability(globalMinioPort), "Port %d already in use", globalMinioPort)
 	}
 
 	globalIsXL = (setupType == XLSetupType)
@@ -158,13 +160,13 @@ func serverMain(ctx *cli.Context) {
 	// enable json and quite modes if jason flag is turned on.
 	jsonFlag := ctx.IsSet("json") || ctx.GlobalIsSet("json")
 	if jsonFlag {
-		log.EnableJSON()
+		logger.EnableJSON()
 	}
 
 	// Get quiet flag from command line argument.
 	quietFlag := ctx.IsSet("quiet") || ctx.GlobalIsSet("quiet")
 	if quietFlag {
-		log.EnableQuiet()
+		logger.EnableQuiet()
 	}
 
 	// Handle all server command args.
@@ -174,7 +176,7 @@ func serverMain(ctx *cli.Context) {
 	serverHandleEnvVars()
 
 	// Create certs path.
-	fatalIf(createConfigDir(), "Unable to create configuration directories.")
+	logger.FatalIf(createConfigDir(), "Unable to create configuration directories.")
 
 	// Initialize server config.
 	initConfig()
@@ -185,11 +187,11 @@ func serverMain(ctx *cli.Context) {
 	// Check and load SSL certificates.
 	var err error
 	globalPublicCerts, globalRootCAs, globalTLSCertificate, globalIsSSL, err = getSSLConfig()
-	fatalIf(err, "Invalid SSL certificate file")
+	logger.FatalIf(err, "Invalid SSL certificate file")
 
 	// Is distributed setup, error out if no certificates are found for HTTPS endpoints.
 	if globalIsDistXL && globalEndpoints.IsHTTPS() && !globalIsSSL {
-		fatalIf(errInvalidArgument, "No certificates found for HTTPS endpoints (%s)", globalEndpoints)
+		logger.FatalIf(errInvalidArgument, "No certificates found for HTTPS endpoints (%s)", globalEndpoints)
 	}
 
 	if !quietFlag {
@@ -204,12 +206,12 @@ func serverMain(ctx *cli.Context) {
 	}
 
 	// Set system resources to maximum.
-	errorIf(setMaxResources(), "Unable to change resource limit")
+	logger.LogIf(context.Background(), setMaxResources())
 
 	// Set nodes for dsync for distributed setup.
 	if globalIsDistXL {
 		globalDsync, err = dsync.New(newDsyncNodes(globalEndpoints))
-		fatalIf(err, "Unable to initialize distributed locking on %s", globalEndpoints)
+		logger.FatalIf(err, "Unable to initialize distributed locking on %s", globalEndpoints)
 	}
 
 	// Initialize name space lock.
@@ -221,11 +223,11 @@ func serverMain(ctx *cli.Context) {
 	// Configure server.
 	var handler http.Handler
 	handler, err = configureServerHandler(globalEndpoints)
-	fatalIf(err, "Unable to configure one of server's RPC services.")
+	logger.FatalIf(err, "Unable to configure one of server's RPC services.")
 
 	// Initialize notification system.
 	globalNotificationSys, err = NewNotificationSys(globalServerConfig, globalEndpoints)
-	fatalIf(err, "Unable to initialize notification system.")
+	logger.FatalIf(err, "Unable to initialize notification system.")
 
 	// Initialize Admin Peers inter-node communication only in distributed setup.
 	initGlobalAdminPeers(globalEndpoints)
@@ -235,7 +237,7 @@ func serverMain(ctx *cli.Context) {
 	globalHTTPServer.WriteTimeout = globalConnWriteTimeout
 	globalHTTPServer.UpdateBytesReadFunc = globalConnStats.incInputBytes
 	globalHTTPServer.UpdateBytesWrittenFunc = globalConnStats.incOutputBytes
-	globalHTTPServer.ErrorLogFunc = errorIf
+	globalHTTPServer.ErrorLogFunc = logger.LogIf
 	go func() {
 		globalHTTPServerErrorCh <- globalHTTPServer.Start()
 	}()
@@ -244,9 +246,9 @@ func serverMain(ctx *cli.Context) {
 
 	newObject, err := newObjectLayer(globalEndpoints)
 	if err != nil {
-		errorIf(err, "Initializing object layer failed")
+		logger.LogIf(context.Background(), err)
 		err = globalHTTPServer.Shutdown()
-		errorIf(err, "Unable to shutdown http server")
+		logger.LogIf(context.Background(), err)
 		os.Exit(1)
 	}
 

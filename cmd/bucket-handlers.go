@@ -33,6 +33,7 @@ import (
 	mux "github.com/gorilla/mux"
 	"github.com/minio/minio-go/pkg/policy"
 	"github.com/minio/minio-go/pkg/set"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/event"
 	"github.com/minio/minio/pkg/hash"
@@ -53,7 +54,7 @@ func enforceBucketPolicy(bucket, action, resource, referer, sourceIP string, que
 			// For no bucket found we return NoSuchBucket instead.
 			return ErrNoSuchBucket
 		}
-		errorIf(err, "Unable to read bucket policy.")
+		logger.LogIf(context.Background(), err)
 		// Return internal error for any other errors so that we can investigate.
 		return ErrInternalError
 	}
@@ -287,7 +288,7 @@ func (api objectAPIHandlers) DeleteMultipleObjectsHandler(w http.ResponseWriter,
 
 	// Read incoming body XML bytes.
 	if _, err := io.ReadFull(r.Body, deleteXMLBytes); err != nil {
-		errorIf(err, "Unable to read HTTP body.")
+		logger.LogIf(context.Background(), err)
 		writeErrorResponse(w, ErrInternalError, r.URL)
 		return
 	}
@@ -295,7 +296,7 @@ func (api objectAPIHandlers) DeleteMultipleObjectsHandler(w http.ResponseWriter,
 	// Unmarshal list of keys to be deleted.
 	deleteObjects := &DeleteObjectsRequest{}
 	if err := xml.Unmarshal(deleteXMLBytes, deleteObjects); err != nil {
-		errorIf(err, "Unable to unmarshal delete objects request XML.")
+		logger.LogIf(context.Background(), err)
 		writeErrorResponse(w, ErrMalformedXML, r.URL)
 		return
 	}
@@ -471,7 +472,7 @@ func (api objectAPIHandlers) PostPolicyBucketHandler(w http.ResponseWriter, r *h
 	// be loaded in memory, the remaining being put in temporary files.
 	reader, err := r.MultipartReader()
 	if err != nil {
-		errorIf(err, "Unable to initialize multipart reader.")
+		logger.LogIf(context.Background(), err)
 		writeErrorResponse(w, ErrMalformedPOSTRequest, r.URL)
 		return
 	}
@@ -571,7 +572,7 @@ func (api objectAPIHandlers) PostPolicyBucketHandler(w http.ResponseWriter, r *h
 
 	hashReader, err := hash.NewReader(fileBody, fileSize, "", "")
 	if err != nil {
-		errorIf(err, "Unable to initialize hashReader.")
+		logger.LogIf(context.Background(), err)
 		writeErrorResponse(w, toAPIErrorCode(err), r.URL)
 		return
 	}
@@ -708,12 +709,14 @@ func (api objectAPIHandlers) DeleteBucketHandler(w http.ResponseWriter, r *http.
 
 	// Notify all peers (including self) to update in-memory state
 	for addr, err := range globalNotificationSys.UpdateBucketPolicy(bucket) {
-		errorIf(err, "unable to update policy change in remote peer %v", addr)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remotePeer", addr.Name))
+		logger.LogIf(ctx, err)
 	}
 
 	globalNotificationSys.RemoveNotification(bucket)
 	for addr, err := range globalNotificationSys.DeleteBucket(bucket) {
-		errorIf(err, "unable to delete bucket in remote peer %v", addr)
+		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remotePeer", addr.Name))
+		logger.LogIf(ctx, err)
 	}
 
 	// Write success response.

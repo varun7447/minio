@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/minio/minio/pkg/mimedb"
@@ -139,7 +140,8 @@ func (xl xlObjects) CopyObject(ctx context.Context, srcBucket, srcObject, dstBuc
 	go func() {
 		var startOffset int64 // Read the whole file.
 		if gerr := xl.getObject(srcBucket, srcObject, startOffset, length, pipeWriter, srcInfo.ETag); gerr != nil {
-			errorIf(gerr, "Unable to read %s of the object `%s/%s`.", srcBucket, srcObject)
+			ctx := logger.ContextSet(context.Background(), &logger.ReqInfo{"", "", "", "", srcBucket, srcObject, nil})
+			logger.LogIf(ctx, gerr)
 			pipeWriter.CloseWithError(toObjectErr(gerr, srcBucket, srcObject))
 			return
 		}

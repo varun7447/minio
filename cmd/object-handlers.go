@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/hmac"
 	"encoding/binary"
 	"encoding/hex"
@@ -31,6 +32,7 @@ import (
 	"strconv"
 
 	mux "github.com/gorilla/mux"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/event"
 	"github.com/minio/minio/pkg/handlers"
@@ -130,7 +132,7 @@ func (api objectAPIHandlers) GetObjectHandler(w http.ResponseWriter, r *http.Req
 			}
 
 			// log the error.
-			errorIf(err, "Invalid request range")
+			logger.LogIf(context.Background(), err)
 		}
 	}
 
@@ -868,7 +870,8 @@ func (api objectAPIHandlers) CopyObjectPartHandler(w http.ResponseWriter, r *htt
 		if hrange, err = parseCopyPartRange(rangeHeader, srcInfo.Size); err != nil {
 			// Handle only errInvalidRange
 			// Ignore other parse error and treat it as regular Get request like Amazon S3.
-			errorIf(err, "Unable to extract range %s", rangeHeader)
+			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("rangeHeader", rangeHeader))
+			logger.LogIf(ctx, err)
 			writeCopyPartErr(w, err, r.URL)
 			return
 		}
