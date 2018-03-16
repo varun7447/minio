@@ -60,12 +60,17 @@ func (level Level) String() string {
 	return lvlStr
 }
 
+type traceEntry struct {
+	Source    []string          `json:"source"`
+	Variables map[string]string `json:"variables,omitempty"`
+}
+
 type logEntry struct {
-	Level   string   `json:"level"`
-	Message string   `json:"message"`
-	Cause   string   `json:"cause"`
-	Time    string   `json:"time"`
-	Trace   []string `json:"trace"`
+	Level   string     `json:"level"`
+	Message string     `json:"message"`
+	Time    string     `json:"time"`
+	Cause   string     `json:"cause,omitempty"`
+	Trace   traceEntry `json:"trace"`
 }
 
 var (
@@ -174,7 +179,7 @@ func logIf(level Level, err error, msg string,
 			Message: message,
 			Time:    timeOfError,
 			Cause:   cause,
-			Trace:   trace,
+			Trace:   traceEntry{Source: trace},
 		})
 		if err != nil {
 			panic("json marshal of logEntry failed: " + err.Error())
@@ -213,9 +218,17 @@ func LogIf(ctx context.Context, err error) {
 	}
 
 	req := ContextGet(ctx)
-
+	tags := make(map[string]string)
 	if req != nil {
-		fmt.Println("Found")
+		tags["API"] = req.API
+		tags["bucketName"] = req.BucketName
+		tags["objectName"] = req.ObjectName
+		tags["remoteHost"] = req.RemoteHost
+		tags["requestID"] = req.RequestID
+		tags["userAgent"] = req.UserAgent
+		for _, entry := range req.Tags {
+			tags[entry.Key] = entry.Val
+		}
 	}
 
 	// Get the cause for the Error
@@ -231,7 +244,7 @@ func LogIf(ctx context.Context, err error) {
 			Level:   Error.String(),
 			Message: message,
 			Time:    timeOfError,
-			Trace:   trace,
+			Trace:   traceEntry{Source: trace, Variables: tags},
 		})
 		if err != nil {
 			panic("json marshal of logEntry failed: " + err.Error())
@@ -244,11 +257,15 @@ func LogIf(ctx context.Context, err error) {
 		for i, element := range trace[1:] {
 			trace[i+1] = fmt.Sprintf("%8v: %s", i+2, element)
 		}
-		errMsg := fmt.Sprintf("[%s] [%s] %s",
-			timeOfError, Error.String(), message)
-
-		output = fmt.Sprintf("\nTrace: %s\n%s",
-			strings.Join(trace, "\n"),
+		errMsg := fmt.Sprintf("[%s] %s", timeOfError, message)
+		tagString := ""
+		for key, value := range tags {
+			if value != "" {
+				tagString += key + " : " + value + "\n"
+			}
+		}
+		output = fmt.Sprintf("\nTrace: %s\n%s%s",
+			strings.Join(trace, "\n"), tagString,
 			colorRed(colorBold(errMsg)))
 	}
 	fmt.Println(output)
