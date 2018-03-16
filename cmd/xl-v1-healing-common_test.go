@@ -265,7 +265,7 @@ func TestListOnlineDisks(t *testing.T) {
 				i+1, test.expectedTime, modTime)
 		}
 
-		availableDisks, newErrs, _ := disksWithAllParts(onlineDisks, partsMetadata, test.errs, bucket, object)
+		availableDisks, newErrs, _ := disksWithAllParts(context.Background(), onlineDisks, partsMetadata, test.errs, bucket, object)
 		test.errs = newErrs
 
 		if test._tamperBackend != noTamper {
@@ -330,7 +330,7 @@ func TestDisksWithAllParts(t *testing.T) {
 	}
 
 	errs = make([]error, len(xlDisks))
-	filteredDisks, errs, err := disksWithAllParts(xlDisks, partsMetadata, errs, bucket, object)
+	filteredDisks, errs, err := disksWithAllParts(context.Background(), xlDisks, partsMetadata, errs, bucket, object)
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
@@ -365,7 +365,7 @@ func TestDisksWithAllParts(t *testing.T) {
 		t.Fatalf("Failed to read xl meta data %v", err)
 	}
 
-	filteredDisks, errs, err = disksWithAllParts(xlDisks, partsMetadata, errs, bucket, object)
+	filteredDisks, errs, err = disksWithAllParts(context.Background(), xlDisks, partsMetadata, errs, bucket, object)
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}

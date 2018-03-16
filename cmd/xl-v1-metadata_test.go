@@ -298,7 +298,7 @@ func TestObjectToPartOffset(t *testing.T) {
 
 	// Test them.
 	for _, testCase := range testCases {
-		index, offset, err := xlMeta.ObjectToPartOffset(testCase.offset)
+		index, offset, err := xlMeta.ObjectToPartOffset(context.Background(), testCase.offset)
 		err = errors2.Cause(err)
 		if err != testCase.expectedErr {
 			t.Fatalf("%+v: expected = %s, got: %s", testCase, testCase.expectedErr, err)
@@ -355,7 +355,7 @@ func TestPickValidXLMeta(t *testing.T) {
 		},
 	}
 	for i, test := range testCases {
-		xlMeta, err := pickValidXLMeta(test.metaArr, test.modTime)
+		xlMeta, err := pickValidXLMeta(context.Background(), test.metaArr, test.modTime)
 		if test.expectedErr != nil {
 			if errors2.Cause(err).Error() != test.expectedErr.Error() {
 				t.Errorf("Test %d: Expected to fail with %v but received %v",
