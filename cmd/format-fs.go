@@ -23,6 +23,9 @@ import (
 	"path"
 	"time"
 
+	"context"
+
+	"github.com/minio/minio/cmd/logger"
 	errors2 "github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/lock"
 )
@@ -107,11 +110,12 @@ func formatFSMigrateV1ToV2(wlk *lock.LockedFile, fsPath string) error {
 		return fmt.Errorf(`format.json version expected %s, found %s`, formatFSVersionV1, version)
 	}
 
-	if err = fsRemoveAll(path.Join(fsPath, minioMetaMultipartBucket)); err != nil {
+	if err = fsRemoveAll(context.Background(), path.Join(fsPath, minioMetaMultipartBucket)); err != nil {
 		return err
 	}
 
 	if err = os.MkdirAll(path.Join(fsPath, minioMetaMultipartBucket), 0755); err != nil {
+		logger.LogIf(context.Background(), err)
 		return err
 	}
 
