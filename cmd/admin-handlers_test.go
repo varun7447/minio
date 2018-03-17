@@ -33,7 +33,6 @@ import (
 
 	router "github.com/gorilla/mux"
 	"github.com/minio/minio/pkg/auth"
-	"github.com/minio/minio/pkg/errors"
 	"github.com/minio/minio/pkg/madmin"
 )
 
@@ -762,13 +761,13 @@ func buildAdminRequest(queryVal url.Values, method, path string,
 		"/minio/admin/v1"+path+"?"+queryVal.Encode(),
 		contentLength, bodySeeker)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	cred := globalServerConfig.GetCredential()
 	err = signRequestV4(req, cred.AccessKey, cred.SecretKey)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return req, nil

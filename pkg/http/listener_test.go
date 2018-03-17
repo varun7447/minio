@@ -481,9 +481,8 @@ func TestHTTPListenerAccept(t *testing.T) {
 func TestHTTPListenerAcceptPeekError(t *testing.T) {
 	tlsConfig := getTLSConfig(t)
 	nonLoopBackIP := getNonLoopBackIP(t)
-	errorFunc := func(err error, template string, args ...interface{}) {
+	errorFunc := func(ctx context.Context, err error) {
 		msg := fmt.Sprintf("error: %v.  ", err)
-		msg += fmt.Sprintf(template, args...)
 		fmt.Println(msg)
 	}
 
@@ -541,9 +540,8 @@ func TestHTTPListenerAcceptPeekError(t *testing.T) {
 func TestHTTPListenerAcceptTLSError(t *testing.T) {
 	tlsConfig := getTLSConfig(t)
 	nonLoopBackIP := getNonLoopBackIP(t)
-	errorFunc := func(err error, template string, args ...interface{}) {
+	errorFunc := func(ctx context.Context, err error) {
 		msg := fmt.Sprintf("error: %v.  ", err)
-		msg += fmt.Sprintf(template, args...)
 		fmt.Println(msg)
 	}
 
@@ -610,9 +608,8 @@ func TestHTTPListenerAcceptTLSError(t *testing.T) {
 func TestHTTPListenerAcceptError(t *testing.T) {
 	tlsConfig := getTLSConfig(t)
 	nonLoopBackIP := getNonLoopBackIP(t)
-	errorFunc := func(err error, template string, args ...interface{}) {
+	errorFunc := func(ctx context.Context, err error) {
 		msg := fmt.Sprintf("error: %v.  ", err)
-		msg += fmt.Sprintf(template, args...)
 		fmt.Println(msg)
 	}
 

@@ -173,7 +173,7 @@ func (listener *httpListener) start() {
 		if listener.tlsConfig != nil {
 			// As the listener is configured with TLS, try to do TLS handshake, drop the connection if it fails.
 			tlsConn := tls.Server(bufconn, listener.tlsConfig)
-			if err := tlsConn.Handshake(); err != nil {
+			if err = tlsConn.Handshake(); err != nil {
 				if listener.errorLogFunc != nil {
 					ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remoteAddr", bufconn.RemoteAddr().String()).AppendTags("localAddr", bufconn.LocalAddr().String()))
 					listener.errorLogFunc(ctx, err)
@@ -187,7 +187,7 @@ func (listener *httpListener) start() {
 				listener.updateBytesReadFunc, listener.updateBytesWrittenFunc)
 
 			// Peek bytes of maximum length of all HTTP methods.
-			data, err := bufconn.Peek(methodMaxLen)
+			data, err = bufconn.Peek(methodMaxLen)
 			if err != nil {
 				if !isRoutineNetErr(err) && listener.errorLogFunc != nil {
 					ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("remoteAddr", bufconn.RemoteAddr().String()).AppendTags("localAddr", bufconn.LocalAddr().String()))

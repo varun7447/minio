@@ -29,9 +29,9 @@ import (
 )
 
 func ossErrResponse(code string) error {
-	return errors.Trace(oss.ServiceError{
+	return oss.ServiceError{
 		Code: code,
-	})
+	}
 }
 
 func TestOSSToObjectError(t *testing.T) {

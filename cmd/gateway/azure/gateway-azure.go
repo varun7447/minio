@@ -880,7 +880,7 @@ func (a *azureObjects) CompleteMultipartUpload(ctx context.Context, bucket, obje
 
 		blob := a.client.GetContainerReference(bucket).GetBlobReference(metadataObject)
 		derr := blob.Delete(nil)
-		ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("uploadID", uploadID))
+		logger.ContextGet(ctx).AppendTags("uploadID", uploadID)
 		logger.LogIf(ctx, derr)
 	}()
 

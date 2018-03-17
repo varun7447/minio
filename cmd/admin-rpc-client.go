@@ -30,7 +30,6 @@ import (
 
 	"github.com/minio/minio-go/pkg/set"
 	"github.com/minio/minio/cmd/logger"
-	"github.com/minio/minio/pkg/errors"
 )
 
 const (
@@ -500,7 +499,7 @@ func getPeerConfig(peers adminPeers) ([]byte, error) {
 	configJSON, err := getValidServerConfig(serverConfigs, errs)
 	if err != nil {
 		logger.LogIf(context.Background(), err)
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	// Return the config.json that was present quorum or more

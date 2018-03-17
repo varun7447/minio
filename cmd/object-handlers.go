@@ -870,7 +870,7 @@ func (api objectAPIHandlers) CopyObjectPartHandler(w http.ResponseWriter, r *htt
 		if hrange, err = parseCopyPartRange(rangeHeader, srcInfo.Size); err != nil {
 			// Handle only errInvalidRange
 			// Ignore other parse error and treat it as regular Get request like Amazon S3.
-			ctx := logger.ContextSet(context.Background(), (&logger.ReqInfo{}).AppendTags("rangeHeader", rangeHeader))
+			logger.ContextGet(ctx).AppendTags("rangeHeader", rangeHeader)
 			logger.LogIf(ctx, err)
 			writeCopyPartErr(w, err, r.URL)
 			return

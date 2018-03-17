@@ -37,7 +37,7 @@ type ReqInfo struct {
 	API        string   // API name - GetObject PutObject NewMultipartUpload etc.
 	BucketName string   // Bucket name
 	ObjectName string   // Object name
-	Tags       []KeyVal // Any additional info not accomodated by above fields
+	Tags       []KeyVal // Any additional info not accommodated by above fields
 }
 
 // AppendTags - appends key/val to ReqInfo.Tags
@@ -56,9 +56,11 @@ func ContextSet(ctx context.Context, req *ReqInfo) context.Context {
 
 // ContextGet returns ReqInfo if set.
 func ContextGet(ctx context.Context) *ReqInfo {
-	r, ok := ctx.Value(contextLogKey).(*ReqInfo)
-	if ok {
-		return r
+	if ctx != nil {
+		r, ok := ctx.Value(contextLogKey).(*ReqInfo)
+		if ok {
+			return r
+		}
 	}
 	return nil
 }

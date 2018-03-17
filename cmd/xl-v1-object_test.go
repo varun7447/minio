@@ -333,7 +333,7 @@ func TestHealing(t *testing.T) {
 	// gone down when an object was replaced by a new object.
 	xlMetaOutDated := xlMetaPreHeal
 	xlMetaOutDated.Stat.ModTime = time.Now()
-	err = writeXLMetadata(disk, bucket, object, xlMetaOutDated)
+	err = writeXLMetadata(context.Background(), disk, bucket, object, xlMetaOutDated)
 	if err != nil {
 		t.Fatal(err)
 	}
