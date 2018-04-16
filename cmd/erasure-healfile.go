@@ -19,10 +19,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"hash"
 	"strings"
-
-	"github.com/minio/minio/cmd/logger"
 )
 
 // HealFile tries to reconstruct an erasure-coded file spread over all
@@ -49,130 +46,130 @@ import (
 func (s ErasureStorage) HealFile(ctx context.Context, staleDisks []StorageAPI, volume, path string, blocksize int64,
 	dstVol, dstPath string, size int64, alg BitrotAlgorithm, checksums [][]byte) (
 	f ErasureFileInfo, err error) {
+	return
+	// if !alg.Available() {
+	// 	logger.LogIf(ctx, errBitrotHashAlgoInvalid)
+	// 	return f, errBitrotHashAlgoInvalid
+	// }
 
-	if !alg.Available() {
-		logger.LogIf(ctx, errBitrotHashAlgoInvalid)
-		return f, errBitrotHashAlgoInvalid
-	}
+	// // Initialization
+	// f.Checksums = make([][]byte, len(s.disks))
+	// hashers := make([]hash.Hash, len(s.disks))
+	// verifiers := make([]*BitrotVerifier, len(s.disks))
+	// for i, disk := range s.disks {
+	// 	switch {
+	// 	case staleDisks[i] != nil:
+	// 		hashers[i] = alg.New()
+	// 	case disk == nil:
+	// 		// disregard unavailable disk
+	// 		continue
+	// 	default:
+	// 		verifiers[i] = NewBitrotVerifier(alg, checksums[i])
+	// 	}
+	// }
+	// writeErrors := make([]error, len(s.disks))
 
-	// Initialization
-	f.Checksums = make([][]byte, len(s.disks))
-	hashers := make([]hash.Hash, len(s.disks))
-	verifiers := make([]*BitrotVerifier, len(s.disks))
-	for i, disk := range s.disks {
-		switch {
-		case staleDisks[i] != nil:
-			hashers[i] = alg.New()
-		case disk == nil:
-			// disregard unavailable disk
-			continue
-		default:
-			verifiers[i] = NewBitrotVerifier(alg, checksums[i])
-		}
-	}
-	writeErrors := make([]error, len(s.disks))
+	// // Read part file data on each disk
+	// chunksize := ceilFrac(blocksize, int64(s.dataBlocks))
+	// numBlocks := ceilFrac(size, blocksize)
 
-	// Read part file data on each disk
-	chunksize := ceilFrac(blocksize, int64(s.dataBlocks))
-	numBlocks := ceilFrac(size, blocksize)
+	// readLen := chunksize * (numBlocks - 1)
 
-	readLen := chunksize * (numBlocks - 1)
+	// lastChunkSize := chunksize
+	// hasSmallerLastBlock := size%blocksize != 0
+	// if hasSmallerLastBlock {
+	// 	lastBlockLen := size % blocksize
+	// 	lastChunkSize = ceilFrac(lastBlockLen, int64(s.dataBlocks))
+	// }
+	// readLen += lastChunkSize
+	// var buffers [][]byte
+	// buffers, _, err = s.readConcurrent(ctx, volume, path, 0, readLen, verifiers)
+	// if err != nil {
+	// 	return f, err
+	// }
 
-	lastChunkSize := chunksize
-	hasSmallerLastBlock := size%blocksize != 0
-	if hasSmallerLastBlock {
-		lastBlockLen := size % blocksize
-		lastChunkSize = ceilFrac(lastBlockLen, int64(s.dataBlocks))
-	}
-	readLen += lastChunkSize
-	var buffers [][]byte
-	buffers, _, err = s.readConcurrent(ctx, volume, path, 0, readLen, verifiers)
-	if err != nil {
-		return f, err
-	}
+	// // Scan part files on disk, block-by-block reconstruct it and
+	// // write to stale disks.
+	// blocks := make([][]byte, len(s.disks))
 
-	// Scan part files on disk, block-by-block reconstruct it and
-	// write to stale disks.
-	blocks := make([][]byte, len(s.disks))
+	// if numBlocks > 1 {
+	// 	// Allocate once for all the equal length blocks. The
+	// 	// last block may have a different length - allocation
+	// 	// for this happens inside the for loop below.
+	// 	for i := range blocks {
+	// 		if len(buffers[i]) == 0 {
+	// 			blocks[i] = make([]byte, chunksize)
+	// 		}
+	// 	}
+	// }
 
-	if numBlocks > 1 {
-		// Allocate once for all the equal length blocks. The
-		// last block may have a different length - allocation
-		// for this happens inside the for loop below.
-		for i := range blocks {
-			if len(buffers[i]) == 0 {
-				blocks[i] = make([]byte, chunksize)
-			}
-		}
-	}
+	// var buffOffset int64
+	// for blockNumber := int64(0); blockNumber < numBlocks; blockNumber++ {
+	// 	if blockNumber == numBlocks-1 && lastChunkSize != chunksize {
+	// 		for i := range blocks {
+	// 			if len(buffers[i]) == 0 {
+	// 				blocks[i] = make([]byte, lastChunkSize)
+	// 			}
+	// 		}
+	// 	}
 
-	var buffOffset int64
-	for blockNumber := int64(0); blockNumber < numBlocks; blockNumber++ {
-		if blockNumber == numBlocks-1 && lastChunkSize != chunksize {
-			for i := range blocks {
-				if len(buffers[i]) == 0 {
-					blocks[i] = make([]byte, lastChunkSize)
-				}
-			}
-		}
+	// 	for i := range blocks {
+	// 		if len(buffers[i]) == 0 {
+	// 			blocks[i] = blocks[i][0:0]
+	// 		}
+	// 	}
 
-		for i := range blocks {
-			if len(buffers[i]) == 0 {
-				blocks[i] = blocks[i][0:0]
-			}
-		}
+	// 	csize := chunksize
+	// 	if blockNumber == numBlocks-1 {
+	// 		csize = lastChunkSize
+	// 	}
+	// 	for i := range blocks {
+	// 		if len(buffers[i]) != 0 {
+	// 			blocks[i] = buffers[i][buffOffset : buffOffset+csize]
+	// 		}
+	// 	}
+	// 	buffOffset += csize
 
-		csize := chunksize
-		if blockNumber == numBlocks-1 {
-			csize = lastChunkSize
-		}
-		for i := range blocks {
-			if len(buffers[i]) != 0 {
-				blocks[i] = buffers[i][buffOffset : buffOffset+csize]
-			}
-		}
-		buffOffset += csize
+	// 	if err = s.ErasureDecodeDataAndParityBlocks(ctx, blocks); err != nil {
+	// 		return f, err
+	// 	}
 
-		if err = s.ErasureDecodeDataAndParityBlocks(ctx, blocks); err != nil {
-			return f, err
-		}
+	// 	// write computed shards as chunks on file in each
+	// 	// stale disk
+	// 	writeSucceeded := false
+	// 	for i, disk := range staleDisks {
+	// 		// skip nil disk or disk that had error on
+	// 		// previous write
+	// 		if disk == nil || writeErrors[i] != nil {
+	// 			continue
+	// 		}
 
-		// write computed shards as chunks on file in each
-		// stale disk
-		writeSucceeded := false
-		for i, disk := range staleDisks {
-			// skip nil disk or disk that had error on
-			// previous write
-			if disk == nil || writeErrors[i] != nil {
-				continue
-			}
+	// 		writeErrors[i] = disk.AppendFile(dstVol, dstPath, blocks[i])
+	// 		if writeErrors[i] == nil {
+	// 			hashers[i].Write(blocks[i])
+	// 			writeSucceeded = true
+	// 		}
+	// 	}
 
-			writeErrors[i] = disk.AppendFile(dstVol, dstPath, blocks[i])
-			if writeErrors[i] == nil {
-				hashers[i].Write(blocks[i])
-				writeSucceeded = true
-			}
-		}
+	// 	// If all disks had write errors we quit.
+	// 	if !writeSucceeded {
+	// 		// build error from all write errors
+	// 		err := joinWriteErrors(writeErrors)
+	// 		logger.LogIf(ctx, err)
+	// 		return f, err
+	// 	}
+	// }
 
-		// If all disks had write errors we quit.
-		if !writeSucceeded {
-			// build error from all write errors
-			err := joinWriteErrors(writeErrors)
-			logger.LogIf(ctx, err)
-			return f, err
-		}
-	}
-
-	// copy computed file hashes into output variable
-	f.Size = size
-	f.Algorithm = alg
-	for i, disk := range staleDisks {
-		if disk == nil || writeErrors[i] != nil {
-			continue
-		}
-		f.Checksums[i] = hashers[i].Sum(nil)
-	}
-	return f, nil
+	// // copy computed file hashes into output variable
+	// f.Size = size
+	// f.Algorithm = alg
+	// for i, disk := range staleDisks {
+	// 	if disk == nil || writeErrors[i] != nil {
+	// 		continue
+	// 	}
+	// 	f.Checksums[i] = hashers[i].Sum(nil)
+	// }
+	// return f, nil
 }
 
 func joinWriteErrors(errs []error) error {

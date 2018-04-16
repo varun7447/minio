@@ -266,7 +266,7 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 	if err != nil {
 		return toObjectErr(err, bucket, object)
 	}
-	checksums := make([][]byte, len(storage.disks))
+
 	for ; partIndex <= lastPartIndex; partIndex++ {
 		if length == totalBytesRead {
 			break
@@ -282,23 +282,22 @@ func (xl xlObjects) getObject(ctx context.Context, bucket, object string, startO
 		}
 
 		// Get the checksums of the current part.
-		var algorithm BitrotAlgorithm
+		bitrotReaders := make([]*bitrotReader, len(storage.disks))
 		for index, disk := range storage.disks {
 			if disk == OfflineDisk {
 				continue
 			}
 			checksumInfo := metaArr[index].Erasure.GetChecksumInfo(partName)
-			algorithm = checksumInfo.Algorithm
-			checksums[index] = checksumInfo.Hash
+			bitrotReaders[index] = NewBitrotReader(disk, bucket, pathJoin(object, partName), checksumInfo.Algorithm, checksumInfo.BlockSize, checksumInfo.Hash, getErasureFileSize(int(xlMeta.Erasure.BlockSize), partSize, storage.dataBlocks))
 		}
 
-		file, err := storage.ReadFile(ctx, writer, bucket, pathJoin(object, partName), partOffset, readSize, partSize, checksums, algorithm, xlMeta.Erasure.BlockSize)
+		err := storage.ReadFile(ctx, writer, bitrotReaders, partOffset, readSize, partSize)
 		if err != nil {
 			return toObjectErr(err, bucket, object)
 		}
 
 		// Track total bytes read from disk and written to the client.
-		totalBytesRead += file.Size
+		totalBytesRead += readSize
 
 		// partOffset will be valid only for the first part, hence reset it to 0 for
 		// the remaining parts.
@@ -614,6 +613,8 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 	buffer := xl.bp.Get()
 	defer xl.bp.Put(buffer)
 
+	buffer = buffer[:xlMeta.Erasure.BlockSize]
+
 	// Read data and split into parts - similar to multipart mechanism
 	for partIdx := 1; ; partIdx++ {
 		// Compute part name
@@ -644,25 +645,31 @@ func (xl xlObjects) putObject(ctx context.Context, bucket string, object string,
 			curPartReader = reader
 		}
 
-		file, erasureErr := storage.CreateFile(ctx, curPartReader, minioMetaTmpBucket,
-			tempErasureObj, buffer, DefaultBitrotAlgorithm, writeQuorum)
+		writers := make([]*bitrotWriter, len(storage.disks))
+		for i, disk := range storage.disks {
+			if disk == nil {
+				continue
+			}
+			writers[i] = NewBitrotWriter(disk, minioMetaTmpBucket, tempErasureObj, DefaultBitrotAlgorithm, DefaultBitrotBlockSize)
+		}
+		n, erasureErr := storage.CreateFile(ctx, curPartReader, writers, buffer)
 		if erasureErr != nil {
 			return ObjectInfo{}, toObjectErr(erasureErr, minioMetaTmpBucket, tempErasureObj)
 		}
 
 		// Should return IncompleteBody{} error when reader has fewer bytes
 		// than specified in request header.
-		if file.Size < curPartSize {
+		if n < curPartSize {
 			logger.LogIf(ctx, IncompleteBody{})
 			return ObjectInfo{}, IncompleteBody{}
 		}
 
 		// Update the total written size
-		sizeWritten += file.Size
+		sizeWritten += n
 
-		for i := range partsMetadata {
-			partsMetadata[i].AddObjectPart(partIdx, partName, "", file.Size)
-			partsMetadata[i].Erasure.AddChecksumInfo(ChecksumInfo{partName, file.Algorithm, file.Checksums[i]})
+		for i, w := range writers {
+			partsMetadata[i].AddObjectPart(partIdx, partName, "", n)
+			partsMetadata[i].Erasure.AddChecksumInfo(ChecksumInfo{partName, DefaultBitrotAlgorithm, w.Close(), w.blockSize})
 		}
 
 		// We wrote everything, break out.

@@ -18,8 +18,6 @@ package cmd
 
 import (
 	"context"
-	"crypto/subtle"
-	"hash"
 
 	"github.com/klauspost/reedsolomon"
 	"github.com/minio/minio/cmd/logger"
@@ -41,6 +39,7 @@ type ErasureStorage struct {
 	disks                    []StorageAPI
 	erasure                  reedsolomon.Encoder
 	dataBlocks, parityBlocks int
+	blockSize                int64
 }
 
 // NewErasureStorage creates a new ErasureStorage. The storage erasure codes and protects all data written to
@@ -57,6 +56,7 @@ func NewErasureStorage(ctx context.Context, disks []StorageAPI, dataBlocks, pari
 		erasure:      erasure,
 		dataBlocks:   dataBlocks,
 		parityBlocks: parityBlocks,
+		blockSize:    blockSize,
 	}
 	copy(s.disks, disks)
 	return
@@ -81,6 +81,16 @@ func (s *ErasureStorage) ErasureEncode(ctx context.Context, data []byte) ([][]by
 // It only decodes the data blocks but does not verify them.
 // It returns an error if the decoding failed.
 func (s *ErasureStorage) ErasureDecodeDataBlocks(data [][]byte) error {
+	needsReconstruction := false
+	for i := 0; i < s.dataBlocks; i++ {
+		if data[i] == nil {
+			needsReconstruction = true
+			break
+		}
+	}
+	if !needsReconstruction {
+		return nil
+	}
 	if err := s.erasure.ReconstructData(data); err != nil {
 		return err
 	}
@@ -96,27 +106,3 @@ func (s *ErasureStorage) ErasureDecodeDataAndParityBlocks(ctx context.Context, d
 	}
 	return nil
 }
-
-// NewBitrotVerifier returns a new BitrotVerifier implementing the given algorithm.
-func NewBitrotVerifier(algorithm BitrotAlgorithm, checksum []byte) *BitrotVerifier {
-	return &BitrotVerifier{algorithm.New(), algorithm, checksum, false}
-}
-
-// BitrotVerifier can be used to verify protected data.
-type BitrotVerifier struct {
-	hash.Hash
-
-	algorithm BitrotAlgorithm
-	sum       []byte
-	verified  bool
-}
-
-// Verify returns true iff the computed checksum of the verifier matches the the checksum provided when the verifier
-// was created.
-func (v *BitrotVerifier) Verify() bool {
-	v.verified = true
-	return subtle.ConstantTimeCompare(v.Sum(nil), v.sum) == 1
-}
-
-// IsVerified returns true iff Verify was called at least once.
-func (v *BitrotVerifier) IsVerified() bool { return v.verified }

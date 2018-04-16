@@ -147,7 +147,7 @@ func parseXLRelease(xlMetaBuf []byte) string {
 	return gjson.GetBytes(xlMetaBuf, "minio.release").String()
 }
 
-func parseXLErasureInfo(ctx context.Context, xlMetaBuf []byte) (ErasureInfo, error) {
+func parseXLErasureInfo(ctx context.Context, xlMetaBuf []byte, parts []objectPartInfo) (ErasureInfo, error) {
 	erasure := ErasureInfo{}
 	erasureResult := gjson.GetBytes(xlMetaBuf, "erasure")
 	// parse the xlV1Meta.Erasure.Distribution.
@@ -169,20 +169,54 @@ func parseXLErasureInfo(ctx context.Context, xlMetaBuf []byte) (ErasureInfo, err
 	// Parse xlMetaV1.Erasure.Checksum array.
 	checkSums := make([]ChecksumInfo, len(checkSumsResult))
 	for i, v := range checkSumsResult {
-		algorithm := BitrotAlgorithmFromString(v.Get("algorithm").String())
-		if !algorithm.Available() {
-			logger.LogIf(ctx, errBitrotHashAlgoInvalid)
-			return erasure, errBitrotHashAlgoInvalid
-		}
-		hash, err := hex.DecodeString(v.Get("hash").String())
+		var err error
+		checkSums[i], err = parseXlErasureInfoChecksumInfo(ctx, v, parts)
 		if err != nil {
-			logger.LogIf(ctx, err)
 			return erasure, err
 		}
-		checkSums[i] = ChecksumInfo{Name: v.Get("name").String(), Algorithm: algorithm, Hash: hash}
 	}
 	erasure.Checksums = checkSums
 	return erasure, nil
+}
+
+func parseXlErasureInfoChecksumInfo(ctx context.Context, input gjson.Result, parts []objectPartInfo) (ChecksumInfo, error) {
+	algorithm := BitrotAlgorithmFromString(input.Get("algorithm").String())
+	if !algorithm.Available() {
+		logger.LogIf(ctx, errBitrotHashAlgoInvalid)
+		return ChecksumInfo{}, errBitrotHashAlgoInvalid
+	}
+	info := ChecksumInfo{
+		Name:      input.Get("name").String(),
+		Algorithm: algorithm,
+	}
+	var err error
+	if algorithm == HighwayHash256G {
+		hashStrSlice := input.Get("hash").Array()
+		info.Hash = make([][]byte, len(hashStrSlice))
+		for i, hashStr := range hashStrSlice {
+			info.Hash[i], err = hex.DecodeString(hashStr.String())
+			if err != nil {
+				logger.LogIf(ctx, err)
+				return ChecksumInfo{}, err
+			}
+		}
+		info.BlockSize = int(input.Get("blockSize").Int())
+		return info, nil
+	}
+	info.Hash = make([][]byte, 1)
+	info.Hash[0], err = hex.DecodeString(input.Get("hash").String())
+	if err != nil {
+		logger.LogIf(ctx, err)
+		return ChecksumInfo{}, err
+	}
+	for _, part := range parts {
+		if part.Name == info.Name {
+			info.BlockSize = int(part.Size)
+			return info, nil
+		}
+	}
+	logger.LogIf(ctx, errCorruptedFormat)
+	return info, errCorruptedFormat
 }
 
 func parseXLParts(xlMetaBuf []byte) []objectPartInfo {
@@ -224,14 +258,16 @@ func xlMetaV1UnmarshalJSON(ctx context.Context, xlMetaBuf []byte) (xlMeta xlMeta
 	}
 
 	xlMeta.Stat = stat
+
+	// Parse the XL Parts.
+	xlMeta.Parts = parseXLParts(xlMetaBuf)
+
 	// parse the xlV1Meta.Erasure fields.
-	xlMeta.Erasure, err = parseXLErasureInfo(ctx, xlMetaBuf)
+	xlMeta.Erasure, err = parseXLErasureInfo(ctx, xlMetaBuf, xlMeta.Parts)
 	if err != nil {
 		return xlMeta, err
 	}
 
-	// Parse the XL Parts.
-	xlMeta.Parts = parseXLParts(xlMetaBuf)
 	// Get the xlMetaV1.Realse field.
 	xlMeta.Minio.Release = parseXLRelease(xlMetaBuf)
 	// parse xlMetaV1.

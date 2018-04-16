@@ -19,10 +19,11 @@ package cmd
 import (
 	"bytes"
 	"context"
-	crand "crypto/rand"
 	"io"
 	"math/rand"
 	"testing"
+
+	crand "crypto/rand"
 
 	humanize "github.com/dustin/go-humanize"
 )
@@ -66,7 +67,6 @@ var erasureReadFileTests = []struct {
 	{dataBlocks: 8, onDisks: 16, offDisks: 7, blocksize: int64(blockSizeV1), data: oneMiByte, offset: 0, length: oneMiByte, algorithm: DefaultBitrotAlgorithm, shouldFail: false, shouldFailQuorum: false},                                            // 23
 	{dataBlocks: 2, onDisks: 4, offDisks: 1, blocksize: int64(blockSizeV1), data: oneMiByte, offset: 0, length: oneMiByte, algorithm: DefaultBitrotAlgorithm, shouldFail: false, shouldFailQuorum: false},                                             // 24
 	{dataBlocks: 2, onDisks: 4, offDisks: 0, blocksize: int64(blockSizeV1), data: oneMiByte, offset: 0, length: oneMiByte, algorithm: DefaultBitrotAlgorithm, shouldFail: false, shouldFailQuorum: false},                                             // 25
-	{dataBlocks: 2, onDisks: 4, offDisks: 0, blocksize: int64(blockSizeV1), data: oneMiByte, offset: 0, length: oneMiByte, algorithm: 0, shouldFail: true, shouldFailQuorum: false},                                                                   // 26
 	{dataBlocks: 2, onDisks: 4, offDisks: 0, blocksize: int64(blockSizeV1), data: int64(blockSizeV1) + 1, offset: 0, length: int64(blockSizeV1) + 1, algorithm: BLAKE2b512, shouldFail: false, shouldFailQuorum: false},                               // 27
 	{dataBlocks: 2, onDisks: 4, offDisks: 0, blocksize: int64(blockSizeV1), data: int64(2 * blockSizeV1), offset: 12, length: int64(blockSizeV1) + 17, algorithm: BLAKE2b512, shouldFail: false, shouldFailQuorum: false},                             // 28
 	{dataBlocks: 3, onDisks: 6, offDisks: 0, blocksize: int64(blockSizeV1), data: int64(2 * blockSizeV1), offset: 1023, length: int64(blockSizeV1) + 1024, algorithm: DefaultBitrotAlgorithm, shouldFail: false, shouldFailQuorum: false},             // 29
@@ -98,18 +98,40 @@ func TestErasureReadFile(t *testing.T) {
 			setup.Remove()
 			t.Fatalf("Test %d: failed to generate random test data: %v", i, err)
 		}
+
 		writeAlgorithm := test.algorithm
 		if !test.algorithm.Available() {
 			writeAlgorithm = DefaultBitrotAlgorithm
 		}
-		buffer := make([]byte, test.blocksize, 2*test.blocksize)
-		file, err := storage.CreateFile(context.Background(), bytes.NewReader(data[:]), "testbucket", "object", buffer, writeAlgorithm, test.dataBlocks+1)
+		buffer := make([]byte, test.blocksize)
+		writers := make([]*bitrotWriter, len(storage.disks))
+		for i, disk := range storage.disks {
+			if disk == nil {
+				continue
+			}
+			writers[i] = NewBitrotWriter(disk, "testbucket", "object", writeAlgorithm, DefaultBitrotBlockSize)
+		}
+		n, err := storage.CreateFile(context.Background(), bytes.NewReader(data[:]), writers, buffer)
 		if err != nil {
 			setup.Remove()
 			t.Fatalf("Test %d: failed to create erasure test file: %v", i, err)
 		}
+		if n != test.data {
+			setup.Remove()
+			t.Fatalf("Test %d: failed to create erasure test file", i)
+		}
+
+		// Get the checksums of the current part.
+		bitrotReaders := make([]*bitrotReader, len(storage.disks))
+		for index, disk := range storage.disks {
+			if disk == OfflineDisk {
+				continue
+			}
+			bitrotReaders[index] = NewBitrotReader(disk, "testbucket", "object", writeAlgorithm, DefaultBitrotBlockSize, writers[index].Close(), getErasureFileSize(int(test.blocksize), n, storage.dataBlocks))
+		}
+
 		writer := bytes.NewBuffer(nil)
-		readInfo, err := storage.ReadFile(context.Background(), writer, "testbucket", "object", test.offset, test.length, test.data, file.Checksums, test.algorithm, test.blocksize)
+		err = storage.ReadFile(context.Background(), writer, bitrotReaders, test.offset, test.length, test.data)
 		if err != nil && !test.shouldFail {
 			t.Errorf("Test %d: should pass but failed with: %v", i, err)
 		}
@@ -117,25 +139,26 @@ func TestErasureReadFile(t *testing.T) {
 			t.Errorf("Test %d: should fail but it passed", i)
 		}
 		if err == nil {
-			if readInfo.Size != test.length {
-				t.Errorf("Test %d: read returns wrong number of bytes: got: #%d want: #%d", i, readInfo.Size, test.length)
-			}
-			if readInfo.Algorithm != test.algorithm {
-				t.Errorf("Test %d: read returns wrong algorithm: got: %v want: %v", i, readInfo.Algorithm, test.algorithm)
-			}
 			if content := writer.Bytes(); !bytes.Equal(content, data[test.offset:test.offset+test.length]) {
 				t.Errorf("Test %d: read retruns wrong file content", i)
 			}
 		}
 		if err == nil && !test.shouldFail {
-			writer.Reset()
+			bitrotReaders = make([]*bitrotReader, len(storage.disks))
+			for index, disk := range storage.disks {
+				if disk == OfflineDisk {
+					continue
+				}
+				bitrotReaders[index] = NewBitrotReader(disk, "testbucket", "object", writeAlgorithm, DefaultBitrotBlockSize, writers[index].Close(), getErasureFileSize(int(test.blocksize), n, storage.dataBlocks))
+			}
 			for j := range storage.disks[:test.offDisks] {
-				storage.disks[j] = badDisk{nil}
+				bitrotReaders[j].disk = badDisk{nil}
 			}
 			if test.offDisks > 0 {
-				storage.disks[0] = OfflineDisk
+				bitrotReaders[0] = nil
 			}
-			readInfo, err = storage.ReadFile(context.Background(), writer, "testbucket", "object", test.offset, test.length, test.data, file.Checksums, test.algorithm, test.blocksize)
+			writer.Reset()
+			err = storage.ReadFile(context.Background(), writer, bitrotReaders, test.offset, test.length, test.data)
 			if err != nil && !test.shouldFailQuorum {
 				t.Errorf("Test %d: should pass but failed with: %v", i, err)
 			}
@@ -143,12 +166,6 @@ func TestErasureReadFile(t *testing.T) {
 				t.Errorf("Test %d: should fail but it passed", i)
 			}
 			if !test.shouldFailQuorum {
-				if readInfo.Size != test.length {
-					t.Errorf("Test %d: read returns wrong number of bytes: got: #%d want: #%d", i, readInfo.Size, test.length)
-				}
-				if readInfo.Algorithm != test.algorithm {
-					t.Errorf("Test %d: read returns wrong algorithm: got: %v want: %v", i, readInfo.Algorithm, test.algorithm)
-				}
 				if content := writer.Bytes(); !bytes.Equal(content, data[test.offset:test.offset+test.length]) {
 					t.Errorf("Test %d: read retruns wrong file content", i)
 				}
@@ -187,17 +204,25 @@ func TestErasureReadFileRandomOffsetLength(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	writers := make([]*bitrotWriter, len(storage.disks))
+	for i, disk := range storage.disks {
+		if disk == nil {
+			continue
+		}
+		writers[i] = NewBitrotWriter(disk, "testbucket", "object", DefaultBitrotAlgorithm, DefaultBitrotBlockSize)
+	}
+
 	// 10000 iterations with random offsets and lengths.
 	iterations := 10000
 
 	// Create a test file to read from.
 	buffer := make([]byte, blockSize, 2*blockSize)
-	file, err := storage.CreateFile(context.Background(), bytes.NewReader(data), "testbucket", "testobject", buffer, DefaultBitrotAlgorithm, dataBlocks+1)
+	n, err := storage.CreateFile(context.Background(), bytes.NewReader(data), writers, buffer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if file.Size != length {
-		t.Errorf("erasureCreateFile returned %d, expected %d", file.Size, length)
+	if n != length {
+		t.Errorf("erasureCreateFile returned %d, expected %d", n, length)
 	}
 
 	// To generate random offset/length.
@@ -212,7 +237,15 @@ func TestErasureReadFileRandomOffsetLength(t *testing.T) {
 
 		expected := data[offset : offset+readLen]
 
-		_, err = storage.ReadFile(context.Background(), buf, "testbucket", "testobject", offset, readLen, length, file.Checksums, DefaultBitrotAlgorithm, blockSize)
+		// Get the checksums of the current part.
+		bitrotReaders := make([]*bitrotReader, len(storage.disks))
+		for index, disk := range storage.disks {
+			if disk == OfflineDisk {
+				continue
+			}
+			bitrotReaders[index] = NewBitrotReader(disk, "testbucket", "object", DefaultBitrotAlgorithm, DefaultBitrotBlockSize, writers[index].Close(), getErasureFileSize(int(blockSize), n, storage.dataBlocks))
+		}
+		err = storage.ReadFile(context.Background(), buf, bitrotReaders, offset, readLen, length)
 		if err != nil {
 			t.Fatal(err, offset, readLen)
 		}
@@ -237,26 +270,41 @@ func benchmarkErasureRead(data, parity, dataDown, parityDown int, size int64, b 
 		b.Fatalf("failed to create ErasureStorage: %v", err)
 	}
 
+	writers := make([]*bitrotWriter, len(storage.disks))
+	for i, disk := range storage.disks {
+		if disk == nil {
+			continue
+		}
+		writers[i] = NewBitrotWriter(disk, "testbucket", "object", DefaultBitrotAlgorithm, DefaultBitrotBlockSize)
+	}
+
 	content := make([]byte, size)
 	buffer := make([]byte, blockSizeV1, 2*blockSizeV1)
-	file, err := storage.CreateFile(context.Background(), bytes.NewReader(content), "testbucket", "object", buffer, DefaultBitrotAlgorithm, data+1)
+	n, err := storage.CreateFile(context.Background(), bytes.NewReader(content), writers, buffer)
 	if err != nil {
 		b.Fatalf("failed to create erasure test file: %v", err)
 	}
 	checksums := file.Checksums
 
 	for i := 0; i < dataDown; i++ {
-		storage.disks[i] = OfflineDisk
+		writers[i] = nil
 	}
 	for i := data; i < data+parityDown; i++ {
-		storage.disks[i] = OfflineDisk
+		writers[i] = nil
 	}
 
 	b.ResetTimer()
 	b.SetBytes(size)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if file, err = storage.ReadFile(context.Background(), bytes.NewBuffer(content[:0]), "testbucket", "object", 0, size, size, checksums, DefaultBitrotAlgorithm, blockSizeV1); err != nil {
+		bitrotReaders := make([]*bitrotReader, len(storage.disks))
+		for index, disk := range storage.disks {
+			if disk == OfflineDisk {
+				continue
+			}
+			bitrotReaders[index] = NewBitrotReader(disk, "testbucket", "object", DefaultBitrotAlgorithm, DefaultBitrotBlockSize, writers[index].Close(), getErasureFileSize(int(storage.blockSize), n, storage.dataBlocks))
+		}
+		if err = storage.ReadFile(context.Background(), bytes.NewBuffer(content[:0]), bitrotReaders, 0, size, size); err != nil {
 			panic(err)
 		}
 	}

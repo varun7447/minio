@@ -18,10 +18,7 @@ package cmd
 
 import (
 	"context"
-	"path/filepath"
 	"time"
-
-	"github.com/minio/minio/cmd/logger"
 )
 
 // commonTime returns a maximally occurring time from a list of time.
@@ -153,47 +150,47 @@ func getLatestXLMeta(partsMetadata []xlMetaV1, errs []error) (xlMetaV1, int) {
 //   other than file not found and not a checksum error).
 func disksWithAllParts(ctx context.Context, onlineDisks []StorageAPI, partsMetadata []xlMetaV1, errs []error, bucket,
 	object string) ([]StorageAPI, []error, error) {
+	return nil, nil, nil
+	// availableDisks := make([]StorageAPI, len(onlineDisks))
+	// buffer := []byte{}
+	// dataErrs := make([]error, len(onlineDisks))
 
-	availableDisks := make([]StorageAPI, len(onlineDisks))
-	buffer := []byte{}
-	dataErrs := make([]error, len(onlineDisks))
+	// for i, onlineDisk := range onlineDisks {
+	// 	if onlineDisk == nil {
+	// 		continue
+	// 	}
 
-	for i, onlineDisk := range onlineDisks {
-		if onlineDisk == nil {
-			continue
-		}
+	// 	// disk has a valid xl.json but may not have all the
+	// 	// parts. This is considered an outdated disk, since
+	// 	// it needs healing too.
+	// 	for _, part := range partsMetadata[i].Parts {
+	// 		partPath := filepath.Join(object, part.Name)
+	// 		checksumInfo := partsMetadata[i].Erasure.GetChecksumInfo(part.Name)
+	// 		verifier := NewBitrotVerifier(checksumInfo.Algorithm, checksumInfo.Hash)
 
-		// disk has a valid xl.json but may not have all the
-		// parts. This is considered an outdated disk, since
-		// it needs healing too.
-		for _, part := range partsMetadata[i].Parts {
-			partPath := filepath.Join(object, part.Name)
-			checksumInfo := partsMetadata[i].Erasure.GetChecksumInfo(part.Name)
-			verifier := NewBitrotVerifier(checksumInfo.Algorithm, checksumInfo.Hash)
+	// 		// verification happens even if a 0-length
+	// 		// buffer is passed
+	// 		_, hErr := onlineDisk.ReadFile(bucket, partPath, 0, buffer, verifier)
 
-			// verification happens even if a 0-length
-			// buffer is passed
-			_, hErr := onlineDisk.ReadFile(bucket, partPath, 0, buffer, verifier)
+	// 		_, isCorrupt := hErr.(hashMismatchError)
+	// 		switch {
+	// 		case isCorrupt:
+	// 			fallthrough
+	// 		case hErr == errFileNotFound, hErr == errVolumeNotFound:
+	// 			dataErrs[i] = hErr
+	// 			break
+	// 		case hErr != nil:
+	// 			logger.LogIf(ctx, hErr)
+	// 			// abort on unhandled errors
+	// 			return nil, nil, hErr
+	// 		}
+	// 	}
 
-			_, isCorrupt := hErr.(hashMismatchError)
-			switch {
-			case isCorrupt:
-				fallthrough
-			case hErr == errFileNotFound, hErr == errVolumeNotFound:
-				dataErrs[i] = hErr
-				break
-			case hErr != nil:
-				logger.LogIf(ctx, hErr)
-				// abort on unhandled errors
-				return nil, nil, hErr
-			}
-		}
+	// 	if dataErrs[i] == nil {
+	// 		// All parts verified, mark it as all data available.
+	// 		availableDisks[i] = onlineDisk
+	// 	}
+	// }
 
-		if dataErrs[i] == nil {
-			// All parts verified, mark it as all data available.
-			availableDisks[i] = onlineDisk
-		}
-	}
-
-	return availableDisks, dataErrs, nil
+	// return availableDisks, dataErrs, nil
 }

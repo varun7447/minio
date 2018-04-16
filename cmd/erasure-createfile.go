@@ -18,85 +18,82 @@ package cmd
 
 import (
 	"context"
-	"hash"
 	"io"
+
+	"sync"
 
 	"github.com/minio/minio/cmd/logger"
 )
 
+type parallelWriter struct {
+	writers     []*bitrotWriter
+	writeQuorum int
+}
+
+func (p *parallelWriter) Append(ctx context.Context, blocks [][]byte) error {
+	var wg sync.WaitGroup
+	errs := make([]error, len(p.writers))
+	for i, writer := range p.writers {
+		if writer == nil {
+			errs[i] = errDiskNotFound
+			continue
+		}
+
+		wg.Add(1)
+		go func(i int, writer *bitrotWriter) {
+			defer wg.Done()
+			errs[i] = writer.Append(blocks[i])
+			if errs[i] != nil {
+				p.writers[i] = nil
+			}
+		}(i, writer)
+	}
+	wg.Wait()
+
+	return reduceWriteQuorumErrs(ctx, errs, objectOpIgnoredErrs, p.writeQuorum)
+}
+
 // CreateFile creates a new bitrot encoded file spread over all available disks. CreateFile will create
 // the file at the given volume and path. It will read from src until an io.EOF occurs. The given algorithm will
 // be used to protect the erasure encoded file.
-func (s *ErasureStorage) CreateFile(ctx context.Context, src io.Reader, volume, path string, buffer []byte, algorithm BitrotAlgorithm, writeQuorum int) (f ErasureFileInfo, err error) {
-	if !algorithm.Available() {
-		logger.LogIf(ctx, errBitrotHashAlgoInvalid)
-		return f, errBitrotHashAlgoInvalid
+func (s *ErasureStorage) CreateFile(ctx context.Context, src io.Reader, writers []*bitrotWriter, buf []byte) (total int64, err error) {
+	writer := &parallelWriter{
+		writers:     writers,
+		writeQuorum: s.dataBlocks + 1,
 	}
-	f.Checksums = make([][]byte, len(s.disks))
-	hashers := make([]hash.Hash, len(s.disks))
-	for i := range hashers {
-		hashers[i] = algorithm.New()
-	}
-	errChans, errs := make([]chan error, len(s.disks)), make([]error, len(s.disks))
-	for i := range errChans {
-		errChans[i] = make(chan error, 1) // create buffered channel to let finished go-routines die early
-	}
-
-	var blocks [][]byte
-	var n = len(buffer)
-	for n == len(buffer) {
-		n, err = io.ReadFull(src, buffer)
-		if n == 0 && err == io.EOF {
-			if f.Size != 0 { // don't write empty block if we have written to the disks
-				break
+	eof := false
+	for {
+		var blocks [][]byte
+		n, err := io.ReadFull(src, buf)
+		switch {
+		case err == io.EOF:
+			if total != 0 {
+				// n = 0, nothing more to be done
+				return total, nil
 			}
-			blocks = make([][]byte, len(s.disks)) // write empty block
-		} else if err == nil || (n > 0 && err == io.ErrUnexpectedEOF) {
-			blocks, err = s.ErasureEncode(ctx, buffer[:n])
+			blocks = make([][]byte, len(s.disks)) // The case where empty object was uploaded
+			eof = true
+			break
+		case err == io.ErrUnexpectedEOF:
+			eof = true
+			fallthrough
+		case err == nil:
+			blocks, err = s.ErasureEncode(ctx, buf[:n])
 			if err != nil {
-				return f, err
+				logger.LogIf(ctx, err)
+				return 0, err
 			}
-		} else {
+		default:
 			logger.LogIf(ctx, err)
-			return f, err
+			return 0, err
 		}
-
-		for i := range errChans { // span workers
-			go erasureAppendFile(ctx, s.disks[i], volume, path, hashers[i], blocks[i], errChans[i])
+		if err = writer.Append(ctx, blocks); err != nil {
+			return 0, err
 		}
-		for i := range errChans { // wait until all workers are finished
-			errs[i] = <-errChans[i]
+		total += int64(n)
+		if eof {
+			break
 		}
-		if err = reduceWriteQuorumErrs(ctx, errs, objectOpIgnoredErrs, writeQuorum); err != nil {
-			return f, err
-		}
-		s.disks = evalDisks(s.disks, errs)
-		f.Size += int64(n)
 	}
-
-	f.Algorithm = algorithm
-	for i, disk := range s.disks {
-		if disk == OfflineDisk {
-			continue
-		}
-		f.Checksums[i] = hashers[i].Sum(nil)
-	}
-	return f, nil
-}
-
-// erasureAppendFile appends the content of buf to the file on the given disk and updates computes
-// the hash of the written data. It sends the write error (or nil) over the error channel.
-func erasureAppendFile(ctx context.Context, disk StorageAPI, volume, path string, hash hash.Hash, buf []byte, errChan chan<- error) {
-	if disk == OfflineDisk {
-		logger.LogIf(ctx, errDiskNotFound)
-		errChan <- errDiskNotFound
-		return
-	}
-	err := disk.AppendFile(volume, path, buf)
-	if err != nil {
-		errChan <- err
-		return
-	}
-	hash.Write(buf)
-	errChan <- err
+	return total, nil
 }

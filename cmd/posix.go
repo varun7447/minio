@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/hex"
 	"io"
 	"io/ioutil"
@@ -641,35 +642,21 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 		return 0, errIsNotRegular
 	}
 
-	if verifier != nil {
-		bufp := s.pool.Get().(*[]byte)
-		defer s.pool.Put(bufp)
-
-		if offset != 0 {
-			if _, err = io.CopyBuffer(verifier, io.LimitReader(file, offset), *bufp); err != nil {
-				return 0, err
-			}
-		}
-		if _, err = file.Read(buffer); err != nil {
-			return 0, err
-		}
-		if _, err = verifier.Write(buffer); err != nil {
-			return 0, err
-		}
-		if _, err = io.CopyBuffer(verifier, file, *bufp); err != nil {
-			return 0, err
-		}
-		if !verifier.Verify() {
-			return 0, hashMismatchError{hex.EncodeToString(verifier.sum), hex.EncodeToString(verifier.Sum(nil))}
-		}
-		return int64(len(buffer)), err
+	if _, err = file.ReadAt(buffer, offset); err != nil {
+		// ReadAt always returns a non-nil error when n < len(b)
+		return n, err
 	}
 
-	m, err := file.ReadAt(buffer, offset)
-	if m > 0 && m < len(buffer) {
-		err = io.ErrUnexpectedEOF
+	h := verifier.algorithm.New()
+	if _, err := h.Write(buffer); err != nil {
+		return 0, err
 	}
-	return int64(m), err
+
+	if subtle.ConstantTimeCompare(h.Sum(nil), verifier.sum) != 1 {
+		return 0, hashMismatchError{hex.EncodeToString(verifier.sum), hex.EncodeToString(h.Sum(nil))}
+	}
+
+	return int64(len(buffer)), nil
 }
 
 func (s *posix) createFile(volume, path string) (f *os.File, err error) {

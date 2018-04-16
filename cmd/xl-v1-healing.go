@@ -18,7 +18,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"sync"
 
@@ -282,259 +281,259 @@ func listAllBuckets(storageDisks []StorageAPI) (buckets map[string]VolInfo,
 func healObject(ctx context.Context, storageDisks []StorageAPI, bucket string, object string,
 	quorum int, dryRun bool) (result madmin.HealResultItem, err error) {
 
-	partsMetadata, errs := readAllXLMetadata(ctx, storageDisks, bucket, object)
+	// partsMetadata, errs := readAllXLMetadata(ctx, storageDisks, bucket, object)
 
-	errCount := 0
-	for _, err := range errs {
-		if err != nil {
-			errCount++
-		}
-	}
+	// errCount := 0
+	// for _, err := range errs {
+	// 	if err != nil {
+	// 		errCount++
+	// 	}
+	// }
 
-	if errCount == len(errs) {
-		// Only if we get errors from all the disks we return error. Else we need to
-		// continue to return filled madmin.HealResultItem struct which includes info
-		// on what disks the file is available etc.
-		if reducedErr := reduceReadQuorumErrs(ctx, errs, nil, quorum); reducedErr != nil {
-			return result, toObjectErr(reducedErr, bucket, object)
-		}
-	}
+	// if errCount == len(errs) {
+	// 	// Only if we get errors from all the disks we return error. Else we need to
+	// 	// continue to return filled madmin.HealResultItem struct which includes info
+	// 	// on what disks the file is available etc.
+	// 	if reducedErr := reduceReadQuorumErrs(ctx, errs, nil, quorum); reducedErr != nil {
+	// 		return result, toObjectErr(reducedErr, bucket, object)
+	// 	}
+	// }
 
-	// List of disks having latest version of the object xl.json
-	// (by modtime).
-	latestDisks, modTime := listOnlineDisks(storageDisks, partsMetadata, errs)
+	// // List of disks having latest version of the object xl.json
+	// // (by modtime).
+	// latestDisks, modTime := listOnlineDisks(storageDisks, partsMetadata, errs)
 
-	// List of disks having all parts as per latest xl.json.
-	availableDisks, dataErrs, aErr := disksWithAllParts(ctx, latestDisks, partsMetadata, errs, bucket, object)
-	if aErr != nil {
-		return result, toObjectErr(aErr, bucket, object)
-	}
+	// // List of disks having all parts as per latest xl.json.
+	// availableDisks, dataErrs, aErr := disksWithAllParts(ctx, latestDisks, partsMetadata, errs, bucket, object)
+	// if aErr != nil {
+	// 	return result, toObjectErr(aErr, bucket, object)
+	// }
 
-	// Initialize heal result object
-	result = madmin.HealResultItem{
-		Type:      madmin.HealItemObject,
-		Bucket:    bucket,
-		Object:    object,
-		DiskCount: len(storageDisks),
+	// // Initialize heal result object
+	// result = madmin.HealResultItem{
+	// 	Type:      madmin.HealItemObject,
+	// 	Bucket:    bucket,
+	// 	Object:    object,
+	// 	DiskCount: len(storageDisks),
 
-		// Initialize object size to -1, so we can detect if we are
-		// unable to reliably find the object size.
-		ObjectSize: -1,
-	}
+	// 	// Initialize object size to -1, so we can detect if we are
+	// 	// unable to reliably find the object size.
+	// 	ObjectSize: -1,
+	// }
 
-	// Loop to find number of disks with valid data, per-drive
-	// data state and a list of outdated disks on which data needs
-	// to be healed.
-	outDatedDisks := make([]StorageAPI, len(storageDisks))
-	numAvailableDisks := 0
-	disksToHealCount := 0
-	for i, v := range availableDisks {
-		driveState := ""
-		switch {
-		case v != nil:
-			driveState = madmin.DriveStateOk
-			numAvailableDisks++
-			// If data is sane on any one disk, we can
-			// extract the correct object size.
-			result.ObjectSize = partsMetadata[i].Stat.Size
-			result.ParityBlocks = partsMetadata[i].Erasure.ParityBlocks
-			result.DataBlocks = partsMetadata[i].Erasure.DataBlocks
-		case errs[i] == errDiskNotFound:
-			driveState = madmin.DriveStateOffline
-		case errs[i] == errFileNotFound, errs[i] == errVolumeNotFound:
-			fallthrough
-		case dataErrs[i] == errFileNotFound, dataErrs[i] == errVolumeNotFound:
-			driveState = madmin.DriveStateMissing
-		default:
-			// all remaining cases imply corrupt data/metadata
-			driveState = madmin.DriveStateCorrupt
-		}
+	// // Loop to find number of disks with valid data, per-drive
+	// // data state and a list of outdated disks on which data needs
+	// // to be healed.
+	// outDatedDisks := make([]StorageAPI, len(storageDisks))
+	// numAvailableDisks := 0
+	// disksToHealCount := 0
+	// for i, v := range availableDisks {
+	// 	driveState := ""
+	// 	switch {
+	// 	case v != nil:
+	// 		driveState = madmin.DriveStateOk
+	// 		numAvailableDisks++
+	// 		// If data is sane on any one disk, we can
+	// 		// extract the correct object size.
+	// 		result.ObjectSize = partsMetadata[i].Stat.Size
+	// 		result.ParityBlocks = partsMetadata[i].Erasure.ParityBlocks
+	// 		result.DataBlocks = partsMetadata[i].Erasure.DataBlocks
+	// 	case errs[i] == errDiskNotFound:
+	// 		driveState = madmin.DriveStateOffline
+	// 	case errs[i] == errFileNotFound, errs[i] == errVolumeNotFound:
+	// 		fallthrough
+	// 	case dataErrs[i] == errFileNotFound, dataErrs[i] == errVolumeNotFound:
+	// 		driveState = madmin.DriveStateMissing
+	// 	default:
+	// 		// all remaining cases imply corrupt data/metadata
+	// 		driveState = madmin.DriveStateCorrupt
+	// 	}
 
-		// an online disk without valid data/metadata is
-		// outdated and can be healed.
-		if errs[i] != errDiskNotFound && v == nil {
-			outDatedDisks[i] = storageDisks[i]
-			disksToHealCount++
-		}
-		var drive string
-		if v == nil {
-			if errs[i] != errDiskNotFound {
-				drive = outDatedDisks[i].String()
-			}
-			result.Before.Drives = append(result.Before.Drives, madmin.HealDriveInfo{
-				UUID:     "",
-				Endpoint: drive,
-				State:    driveState,
-			})
-			result.After.Drives = append(result.After.Drives, madmin.HealDriveInfo{
-				UUID:     "",
-				Endpoint: drive,
-				State:    driveState,
-			})
-			continue
-		}
-		drive = v.String()
-		result.Before.Drives = append(result.Before.Drives, madmin.HealDriveInfo{
-			UUID:     "",
-			Endpoint: drive,
-			State:    driveState,
-		})
-		result.After.Drives = append(result.After.Drives, madmin.HealDriveInfo{
-			UUID:     "",
-			Endpoint: drive,
-			State:    driveState,
-		})
-	}
+	// 	// an online disk without valid data/metadata is
+	// 	// outdated and can be healed.
+	// 	if errs[i] != errDiskNotFound && v == nil {
+	// 		outDatedDisks[i] = storageDisks[i]
+	// 		disksToHealCount++
+	// 	}
+	// 	var drive string
+	// 	if v == nil {
+	// 		if errs[i] != errDiskNotFound {
+	// 			drive = outDatedDisks[i].String()
+	// 		}
+	// 		result.Before.Drives = append(result.Before.Drives, madmin.HealDriveInfo{
+	// 			UUID:     "",
+	// 			Endpoint: drive,
+	// 			State:    driveState,
+	// 		})
+	// 		result.After.Drives = append(result.After.Drives, madmin.HealDriveInfo{
+	// 			UUID:     "",
+	// 			Endpoint: drive,
+	// 			State:    driveState,
+	// 		})
+	// 		continue
+	// 	}
+	// 	drive = v.String()
+	// 	result.Before.Drives = append(result.Before.Drives, madmin.HealDriveInfo{
+	// 		UUID:     "",
+	// 		Endpoint: drive,
+	// 		State:    driveState,
+	// 	})
+	// 	result.After.Drives = append(result.After.Drives, madmin.HealDriveInfo{
+	// 		UUID:     "",
+	// 		Endpoint: drive,
+	// 		State:    driveState,
+	// 	})
+	// }
 
-	// If less than read quorum number of disks have all the parts
-	// of the data, we can't reconstruct the erasure-coded data.
-	if numAvailableDisks < quorum {
-		return result, toObjectErr(errXLReadQuorum, bucket, object)
-	}
+	// // If less than read quorum number of disks have all the parts
+	// // of the data, we can't reconstruct the erasure-coded data.
+	// if numAvailableDisks < quorum {
+	// 	return result, toObjectErr(errXLReadQuorum, bucket, object)
+	// }
 
-	if disksToHealCount == 0 {
-		// Nothing to heal!
-		return result, nil
-	}
+	// if disksToHealCount == 0 {
+	// 	// Nothing to heal!
+	// 	return result, nil
+	// }
 
-	// After this point, only have to repair data on disk - so
-	// return if it is a dry-run
-	if dryRun {
-		return result, nil
-	}
+	// // After this point, only have to repair data on disk - so
+	// // return if it is a dry-run
+	// if dryRun {
+	// 	return result, nil
+	// }
 
-	// Latest xlMetaV1 for reference. If a valid metadata is not
-	// present, it is as good as object not found.
-	latestMeta, pErr := pickValidXLMeta(ctx, partsMetadata, modTime)
-	if pErr != nil {
-		return result, toObjectErr(pErr, bucket, object)
-	}
+	// // Latest xlMetaV1 for reference. If a valid metadata is not
+	// // present, it is as good as object not found.
+	// latestMeta, pErr := pickValidXLMeta(ctx, partsMetadata, modTime)
+	// if pErr != nil {
+	// 	return result, toObjectErr(pErr, bucket, object)
+	// }
 
-	// Clear data files of the object on outdated disks
-	for _, disk := range outDatedDisks {
-		// Before healing outdated disks, we need to remove
-		// xl.json and part files from "bucket/object/" so
-		// that rename(minioMetaBucket, "tmp/tmpuuid/",
-		// "bucket", "object/") succeeds.
-		if disk == nil {
-			// Not an outdated disk.
-			continue
-		}
+	// // Clear data files of the object on outdated disks
+	// for _, disk := range outDatedDisks {
+	// 	// Before healing outdated disks, we need to remove
+	// 	// xl.json and part files from "bucket/object/" so
+	// 	// that rename(minioMetaBucket, "tmp/tmpuuid/",
+	// 	// "bucket", "object/") succeeds.
+	// 	if disk == nil {
+	// 		// Not an outdated disk.
+	// 		continue
+	// 	}
 
-		// List and delete the object directory,
-		files, derr := disk.ListDir(bucket, object, -1)
-		if derr == nil {
-			for _, entry := range files {
-				_ = disk.DeleteFile(bucket,
-					pathJoin(object, entry))
-			}
-		}
-	}
+	// 	// List and delete the object directory,
+	// 	files, derr := disk.ListDir(bucket, object, -1)
+	// 	if derr == nil {
+	// 		for _, entry := range files {
+	// 			_ = disk.DeleteFile(bucket,
+	// 				pathJoin(object, entry))
+	// 		}
+	// 	}
+	// }
 
-	// Reorder so that we have data disks first and parity disks next.
-	latestDisks = shuffleDisks(latestDisks, latestMeta.Erasure.Distribution)
-	outDatedDisks = shuffleDisks(outDatedDisks, latestMeta.Erasure.Distribution)
-	partsMetadata = shufflePartsMetadata(partsMetadata, latestMeta.Erasure.Distribution)
+	// // Reorder so that we have data disks first and parity disks next.
+	// latestDisks = shuffleDisks(latestDisks, latestMeta.Erasure.Distribution)
+	// outDatedDisks = shuffleDisks(outDatedDisks, latestMeta.Erasure.Distribution)
+	// partsMetadata = shufflePartsMetadata(partsMetadata, latestMeta.Erasure.Distribution)
 
-	// We write at temporary location and then rename to final location.
-	tmpID := mustGetUUID()
+	// // We write at temporary location and then rename to final location.
+	// tmpID := mustGetUUID()
 
-	// Checksum of the part files. checkSumInfos[index] will
-	// contain checksums of all the part files in the
-	// outDatedDisks[index]
-	checksumInfos := make([][]ChecksumInfo, len(outDatedDisks))
+	// // Checksum of the part files. checkSumInfos[index] will
+	// // contain checksums of all the part files in the
+	// // outDatedDisks[index]
+	// checksumInfos := make([][]ChecksumInfo, len(outDatedDisks))
 
-	// Heal each part. erasureHealFile() will write the healed
-	// part to .minio/tmp/uuid/ which needs to be renamed later to
-	// the final location.
-	storage, err := NewErasureStorage(ctx, latestDisks, latestMeta.Erasure.DataBlocks,
-		latestMeta.Erasure.ParityBlocks, latestMeta.Erasure.BlockSize)
-	if err != nil {
-		return result, toObjectErr(err, bucket, object)
-	}
-	checksums := make([][]byte, len(latestDisks))
-	for partIndex := 0; partIndex < len(latestMeta.Parts); partIndex++ {
-		partName := latestMeta.Parts[partIndex].Name
-		partSize := latestMeta.Parts[partIndex].Size
-		erasure := latestMeta.Erasure
-		var algorithm BitrotAlgorithm
-		for i, disk := range storage.disks {
-			if disk != OfflineDisk {
-				info := partsMetadata[i].Erasure.GetChecksumInfo(partName)
-				algorithm = info.Algorithm
-				checksums[i] = info.Hash
-			}
-		}
-		// Heal the part file.
-		file, hErr := storage.HealFile(ctx, outDatedDisks, bucket, pathJoin(object, partName),
-			erasure.BlockSize, minioMetaTmpBucket, pathJoin(tmpID, partName), partSize,
-			algorithm, checksums)
-		if hErr != nil {
-			return result, toObjectErr(hErr, bucket, object)
-		}
-		// outDatedDisks that had write errors should not be
-		// written to for remaining parts, so we nil it out.
-		for i, disk := range outDatedDisks {
-			if disk == nil {
-				continue
-			}
-			// A non-nil stale disk which did not receive
-			// a healed part checksum had a write error.
-			if file.Checksums[i] == nil {
-				outDatedDisks[i] = nil
-				disksToHealCount--
-				continue
-			}
-			// append part checksums
-			checksumInfos[i] = append(checksumInfos[i],
-				ChecksumInfo{partName, file.Algorithm, file.Checksums[i]})
-		}
+	// // Heal each part. erasureHealFile() will write the healed
+	// // part to .minio/tmp/uuid/ which needs to be renamed later to
+	// // the final location.
+	// storage, err := NewErasureStorage(ctx, latestDisks, latestMeta.Erasure.DataBlocks,
+	// 	latestMeta.Erasure.ParityBlocks, latestMeta.Erasure.BlockSize)
+	// if err != nil {
+	// 	return result, toObjectErr(err, bucket, object)
+	// }
+	// checksums := make([][]byte, len(latestDisks))
+	// for partIndex := 0; partIndex < len(latestMeta.Parts); partIndex++ {
+	// 	partName := latestMeta.Parts[partIndex].Name
+	// 	partSize := latestMeta.Parts[partIndex].Size
+	// 	erasure := latestMeta.Erasure
+	// 	var algorithm BitrotAlgorithm
+	// 	for i, disk := range storage.disks {
+	// 		if disk != OfflineDisk {
+	// 			info := partsMetadata[i].Erasure.GetChecksumInfo(partName)
+	// 			algorithm = info.Algorithm
+	// 			checksums[i] = info.Hash
+	// 		}
+	// 	}
+	// 	// Heal the part file.
+	// 	file, hErr := storage.HealFile(ctx, outDatedDisks, bucket, pathJoin(object, partName),
+	// 		erasure.BlockSize, minioMetaTmpBucket, pathJoin(tmpID, partName), partSize,
+	// 		algorithm, checksums)
+	// 	if hErr != nil {
+	// 		return result, toObjectErr(hErr, bucket, object)
+	// 	}
+	// 	// outDatedDisks that had write errors should not be
+	// 	// written to for remaining parts, so we nil it out.
+	// 	for i, disk := range outDatedDisks {
+	// 		if disk == nil {
+	// 			continue
+	// 		}
+	// 		// A non-nil stale disk which did not receive
+	// 		// a healed part checksum had a write error.
+	// 		if file.Checksums[i] == nil {
+	// 			outDatedDisks[i] = nil
+	// 			disksToHealCount--
+	// 			continue
+	// 		}
+	// 		// append part checksums
+	// 		checksumInfos[i] = append(checksumInfos[i],
+	// 			ChecksumInfo{partName, file.Algorithm, file.Checksums[i]})
+	// 	}
 
-		// If all disks are having errors, we give up.
-		if disksToHealCount == 0 {
-			return result, fmt.Errorf("all disks without up-to-date data had write errors")
-		}
-	}
+	// 	// If all disks are having errors, we give up.
+	// 	if disksToHealCount == 0 {
+	// 		return result, fmt.Errorf("all disks without up-to-date data had write errors")
+	// 	}
+	// }
 
-	// xl.json should be written to all the healed disks.
-	for index, disk := range outDatedDisks {
-		if disk == nil {
-			continue
-		}
-		partsMetadata[index] = latestMeta
-		partsMetadata[index].Erasure.Checksums = checksumInfos[index]
-	}
+	// // xl.json should be written to all the healed disks.
+	// for index, disk := range outDatedDisks {
+	// 	if disk == nil {
+	// 		continue
+	// 	}
+	// 	partsMetadata[index] = latestMeta
+	// 	partsMetadata[index].Erasure.Checksums = checksumInfos[index]
+	// }
 
-	// Generate and write `xl.json` generated from other disks.
-	outDatedDisks, aErr = writeUniqueXLMetadata(ctx, outDatedDisks, minioMetaTmpBucket, tmpID,
-		partsMetadata, diskCount(outDatedDisks))
-	if aErr != nil {
-		return result, toObjectErr(aErr, bucket, object)
-	}
+	// // Generate and write `xl.json` generated from other disks.
+	// outDatedDisks, aErr = writeUniqueXLMetadata(ctx, outDatedDisks, minioMetaTmpBucket, tmpID,
+	// 	partsMetadata, diskCount(outDatedDisks))
+	// if aErr != nil {
+	// 	return result, toObjectErr(aErr, bucket, object)
+	// }
 
-	// Rename from tmp location to the actual location.
-	for _, disk := range outDatedDisks {
-		if disk == nil {
-			continue
-		}
+	// // Rename from tmp location to the actual location.
+	// for _, disk := range outDatedDisks {
+	// 	if disk == nil {
+	// 		continue
+	// 	}
 
-		// Attempt a rename now from healed data to final location.
-		aErr = disk.RenameFile(minioMetaTmpBucket, retainSlash(tmpID), bucket,
-			retainSlash(object))
-		if aErr != nil {
-			logger.LogIf(ctx, aErr)
-			return result, toObjectErr(aErr, bucket, object)
-		}
+	// 	// Attempt a rename now from healed data to final location.
+	// 	aErr = disk.RenameFile(minioMetaTmpBucket, retainSlash(tmpID), bucket,
+	// 		retainSlash(object))
+	// 	if aErr != nil {
+	// 		logger.LogIf(ctx, aErr)
+	// 		return result, toObjectErr(aErr, bucket, object)
+	// 	}
 
-		for i, v := range result.Before.Drives {
-			if v.Endpoint == disk.String() {
-				result.After.Drives[i].State = madmin.DriveStateOk
-			}
-		}
-	}
+	// 	for i, v := range result.Before.Drives {
+	// 		if v.Endpoint == disk.String() {
+	// 			result.After.Drives[i].State = madmin.DriveStateOk
+	// 		}
+	// 	}
+	// }
 
-	// Set the size of the object in the heal result
-	result.ObjectSize = latestMeta.Stat.Size
+	// // Set the size of the object in the heal result
+	// result.ObjectSize = latestMeta.Stat.Size
 
 	return result, nil
 }

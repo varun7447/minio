@@ -325,6 +325,14 @@ func ceilFrac(numerator, denominator int64) (ceil int64) {
 	return
 }
 
+func getErasureFileSize(blockSize int, totalLength int64, dataBlocks int) int64 {
+	chunkSize := ceilFrac(int64(blockSize), int64(dataBlocks))
+	numChunks := totalLength / int64(blockSize)
+	lastBlockSize := totalLength % int64(blockSize)
+	lastChunkSize := ceilFrac(lastBlockSize, int64(dataBlocks))
+	return chunkSize*numChunks + lastChunkSize
+}
+
 // Returns context with ReqInfo details set in the context.
 func newContext(r *http.Request, api string) context.Context {
 	vars := mux.Vars(r)

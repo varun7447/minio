@@ -378,16 +378,30 @@ func (xl xlObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID 
 	buffer := xl.bp.Get()
 	defer xl.bp.Put(buffer)
 
-	file, err := storage.CreateFile(ctx, data, minioMetaTmpBucket, tmpPartPath, buffer, DefaultBitrotAlgorithm, writeQuorum)
+	buffer = buffer[:xlMeta.Erasure.BlockSize]
+	writers := make([]*bitrotWriter, len(storage.disks))
+	for i, disk := range storage.disks {
+		if disk == nil {
+			continue
+		}
+		writers[i] = NewBitrotWriter(disk, minioMetaTmpBucket, tmpPartPath, DefaultBitrotAlgorithm, DefaultBitrotBlockSize)
+	}
+	n, err := storage.CreateFile(ctx, data, writers, buffer)
 	if err != nil {
 		return pi, toObjectErr(err, bucket, object)
 	}
 
 	// Should return IncompleteBody{} error when reader has fewer bytes
 	// than specified in request header.
-	if file.Size < data.Size() {
+	if n < data.Size() {
 		logger.LogIf(ctx, IncompleteBody{})
 		return pi, IncompleteBody{}
+	}
+
+	for i := range writers {
+		if writers[i] == nil {
+			onlineDisks[i] = nil
+		}
 	}
 
 	// post-upload check (write) lock
@@ -431,14 +445,14 @@ func (xl xlObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID 
 	md5hex := hex.EncodeToString(data.MD5Current())
 
 	// Add the current part.
-	xlMeta.AddObjectPart(partID, partSuffix, md5hex, file.Size)
+	xlMeta.AddObjectPart(partID, partSuffix, md5hex, n)
 
 	for i, disk := range onlineDisks {
 		if disk == OfflineDisk {
 			continue
 		}
 		partsMetadata[i].Parts = xlMeta.Parts
-		partsMetadata[i].Erasure.AddChecksumInfo(ChecksumInfo{partSuffix, file.Algorithm, file.Checksums[i]})
+		partsMetadata[i].Erasure.AddChecksumInfo(ChecksumInfo{partSuffix, DefaultBitrotAlgorithm, writers[i].Close(), writers[i].blockSize})
 	}
 
 	// Write all the checksum metadata.
