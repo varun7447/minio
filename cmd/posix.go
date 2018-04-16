@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/hex"
 	"io"
 	"io/ioutil"
@@ -661,12 +662,18 @@ func (s *posix) ReadAll(volume, path string) (buf []byte, err error) {
 //
 // Additionally ReadFile also starts reading from an offset. ReadFile
 // semantics are same as io.ReadFull.
-func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (n int64, err error) {
+func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verifier *BitrotVerifier) (int64, error) {
+	var n int
+	var err error
 	defer func() {
 		if err == syscall.EIO {
 			atomic.AddInt32(&s.ioErrCount, 1)
 		}
 	}()
+
+	if offset < 0 {
+		return 0, errInvalidArgument
+	}
 
 	if atomic.LoadInt32(&s.ioErrCount) > maxAllowedIOError {
 		return 0, errFaultyDisk
@@ -722,35 +729,36 @@ func (s *posix) ReadFile(volume, path string, offset int64, buffer []byte, verif
 		return 0, errIsNotRegular
 	}
 
-	if verifier != nil {
-		bufp := s.pool.Get().(*[]byte)
-		defer s.pool.Put(bufp)
-
-		if offset != 0 {
-			if _, err = io.CopyBuffer(verifier, io.LimitReader(file, offset), *bufp); err != nil {
-				return 0, err
-			}
-		}
-		if _, err = file.Read(buffer); err != nil {
-			return 0, err
-		}
-		if _, err = verifier.Write(buffer); err != nil {
-			return 0, err
-		}
-		if _, err = io.CopyBuffer(verifier, file, *bufp); err != nil {
-			return 0, err
-		}
-		if !verifier.Verify() {
-			return 0, hashMismatchError{hex.EncodeToString(verifier.sum), hex.EncodeToString(verifier.Sum(nil))}
-		}
-		return int64(len(buffer)), err
+	if verifier == nil {
+		n, err = file.ReadAt(buffer, offset)
+		return int64(n), err
 	}
 
-	m, err := file.ReadAt(buffer, offset)
-	if m > 0 && m < len(buffer) {
-		err = io.ErrUnexpectedEOF
+	bufp := s.pool.Get().(*[]byte)
+	defer s.pool.Put(bufp)
+
+	h := verifier.algorithm.New()
+	if _, err = io.CopyBuffer(h, io.LimitReader(file, offset), *bufp); err != nil {
+		return 0, err
 	}
-	return int64(m), err
+
+	if n, err = io.ReadFull(file, buffer); err != nil {
+		return int64(n), err
+	}
+
+	if _, err = h.Write(buffer); err != nil {
+		return 0, err
+	}
+
+	if _, err = io.CopyBuffer(h, file, *bufp); err != nil {
+		return 0, err
+	}
+
+	if subtle.ConstantTimeCompare(h.Sum(nil), verifier.sum) != 1 {
+		return 0, hashMismatchError{hex.EncodeToString(verifier.sum), hex.EncodeToString(h.Sum(nil))}
+	}
+
+	return int64(len(buffer)), nil
 }
 
 func (s *posix) createFile(volume, path string) (f *os.File, err error) {

@@ -153,7 +153,6 @@ func getLatestXLMeta(partsMetadata []xlMetaV1, errs []error) (xlMetaV1, int) {
 //   other than file not found and not a checksum error).
 func disksWithAllParts(ctx context.Context, onlineDisks []StorageAPI, partsMetadata []xlMetaV1, errs []error, bucket,
 	object string) ([]StorageAPI, []error, error) {
-
 	availableDisks := make([]StorageAPI, len(onlineDisks))
 	buffer := []byte{}
 	dataErrs := make([]error, len(onlineDisks))

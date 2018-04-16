@@ -104,3 +104,12 @@ func writeDataBlocks(ctx context.Context, dst io.Writer, enBlocks [][]byte, data
 	// Success.
 	return totalWritten, nil
 }
+
+// Returns shard-file size.
+func getErasureShardFileSize(blockSize int64, totalLength int64, dataBlocks int) int64 {
+	shardSize := ceilFrac(int64(blockSize), int64(dataBlocks))
+	numShards := totalLength / int64(blockSize)
+	lastBlockSize := totalLength % int64(blockSize)
+	lastShardSize := ceilFrac(lastBlockSize, int64(dataBlocks))
+	return shardSize*numShards + lastShardSize
+}

@@ -76,6 +76,9 @@ var errBitrotHashAlgoInvalid = errors.New("bit-rot hash algorithm is invalid")
 // errCrossDeviceLink - rename across devices not allowed.
 var errCrossDeviceLink = errors.New("Rename across devices not allowed, please fix your backend configuration")
 
+// errLessData - returned when less data available than what was requested.
+var errLessData = errors.New("less data available than what was requested")
+
 // hashMisMatchError - represents a bit-rot hash verification failure
 // error.
 type hashMismatchError struct {

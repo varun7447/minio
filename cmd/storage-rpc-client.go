@@ -267,7 +267,6 @@ func (n *networkStorage) ReadFile(volume string, path string, offset int64, buff
 	if verifier != nil {
 		args.Algo = verifier.algorithm
 		args.ExpectedHash = verifier.sum
-		args.Verified = verifier.IsVerified()
 	}
 
 	var result []byte
