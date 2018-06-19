@@ -31,12 +31,12 @@ minio --config-dir /data/conf1 server --address :9001 /data/export1
 
 *Run Minio-2*:
 ```
-minio --config-dir /data/conf2 server --address :9001 /data/export2
+minio --config-dir /data/conf2 server --address :9002 /data/export2
 ```
 
 *Run Minio-3*:
 ```
-minio --config-dir /data/conf3 server --address :9001 /data/export3
+minio --config-dir /data/conf3 server --address :9003 /data/export3
 ```
 
 ### Run minio instances behind a reverse proxy
